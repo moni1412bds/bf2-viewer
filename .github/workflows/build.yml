@@ -1,0 +1,27 @@
+name: Compilar BF2 Visor
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install
+      - run: npm run tauri build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BF2-Visor-instalador
+          path: src-tauri/target/release/bundle/nsis/*.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BF2-Visor-portable
+          path: src-tauri/target/release/bf2-visor.exe
