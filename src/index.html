@@ -1,0 +1,2385 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Visor 3D & 1P BF2</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root {
+  --bg: #eceae4;
+  --panel: #f6f5f1;
+  --panel-2: #e4e2db;
+  --line: #cfccc2;
+  --fg: #23251f;
+  --fg-dim: #66695e;
+  --accent: #c2531b;
+  --accent-fg: #ffffff;
+  --ok: #3f7d4a;
+  --warn: #a8700f;
+  --stage-top: #2b3037;
+  --stage-bot: #15181c;
+  --font-ui: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #101214; --panel: #1a1d20; --panel-2: #24282c; --line: #343a40;
+    --fg: #e6e7e2; --fg-dim: #9a9e94; --accent: #ef8a4c; --accent-fg: #1a1208;
+    --ok: #6fb67b; --warn: #e0a64a; --stage-top: #2b3037; --stage-bot: #0e1013;
+    color-scheme: dark;
+  }
+}
+html, body { height: 100%; margin: 0; overflow: hidden; }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--font-ui); font-size: 14px; line-height: 1.4;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 12px;
+}
+* { box-sizing: border-box; }
+button, select, input, textarea { font: inherit; color: inherit; }
+.app {
+  height: 100%; display: grid; gap: 12px;
+  grid-template-columns: minmax(290px, 350px) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-areas: "side stage" "side time";
+}
+.side { grid-area: side; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; display: flex; flex-direction: column; height: 100%; min-height: 0; min-width: 0; overflow: hidden; }
+.side-top { overflow-y: auto; flex-shrink: 1; max-height: 56%; min-height: 0; }
+.tabs { flex-shrink: 0; }
+.list { overflow-y: auto; flex: 1 1 auto; min-height: 90px; padding: 6px; }
+.stage { grid-area: stage; position: relative; border-radius: 8px; overflow: hidden; min-height: 280px; background: linear-gradient(180deg, var(--stage-top), var(--stage-bot)); border: 1px solid var(--line); }
+.time { grid-area: time; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; min-width: 0; }
+canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#ov { pointer-events: none; }
+#gl { touch-action: none; cursor: grab; }
+
+.head { padding: 12px 14px 10px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.head h1 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: .01em; }
+.head p { margin: 2px 0 0; color: var(--fg-dim); font-size: 12px; }
+.mode-pill { font-family: var(--font-mono); font-size: 11px; padding: 3px 8px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel-2); white-space: nowrap; }
+.mode-pill.on1p { border-color: var(--accent); color: var(--accent); }
+.block { padding: 10px 14px; border-bottom: 1px solid var(--line); display: grid; gap: 8px; }
+.drop {
+  border: 1.5px dashed var(--line); border-radius: 6px; padding: 9px; text-align: center; color: var(--fg-dim); font-size: 12px;
+  transition: border-color .15s, background .15s;
+}
+.drop.over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); color: var(--fg); }
+.row { display: flex; gap: 6px; flex-wrap: wrap; }
+.row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.btn {
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 5px; padding: 5px 9px; cursor: pointer; font-size: 12px;
+}
+.btn:hover { border-color: var(--fg-dim); }
+.btn:focus-visible, .chip:focus-visible, .item:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.btn.primary { background: var(--accent); color: var(--accent-fg); border-color: transparent; font-weight: 500; }
+label.f { display: grid; gap: 3px; font-size: 11px; color: var(--fg-dim); text-transform: uppercase; letter-spacing: .05em; }
+select, input[type=text] { background: var(--panel-2); border: 1px solid var(--line); border-radius: 5px; padding: 5px 7px; color: var(--fg); width: 100%; min-width: 0; text-transform: none; letter-spacing: 0; font-size: 12px; }
+.tabs { display: flex; border-bottom: 1px solid var(--line); }
+.tab { flex: 1; background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 4px; cursor: pointer; color: var(--fg-dim); font-weight: 500; }
+.tab[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent); }
+
+.item {
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; padding: 6px 8px; border-radius: 5px; border: 1px solid transparent;
+  background: none; cursor: pointer; min-width: 0;
+}
+.item:hover { background: var(--panel-2); }
+.item[aria-current="true"] { background: color-mix(in srgb, var(--accent) 16%, transparent); border-color: var(--accent); }
+.item[disabled] { opacity: .45; cursor: not-allowed; }
+.item .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: 12px; }
+.item .meta { font-family: var(--font-mono); font-size: 11px; color: var(--fg-dim); white-space: nowrap; }
+.tag { font-family: var(--font-mono); font-size: 10.5px; padding: 1px 5px; border-radius: 3px; background: var(--panel-2); border: 1px solid var(--line); color: var(--fg-dim); white-space: nowrap; }
+.tag.warn { color: var(--warn); border-color: var(--warn); }
+.empty-list { color: var(--fg-dim); padding: 10px; font-size: 12px; }
+
+.toolbar { position: absolute; top: 10px; left: 10px; right: 10px; display: flex; gap: 6px; flex-wrap: wrap; pointer-events: none; }
+.toolbar > * { pointer-events: auto; }
+.chip { background: rgba(20,22,26,.74); color: #e6e7e2; border: 1px solid rgba(255,255,255,.16); border-radius: 999px; padding: 4px 11px; cursor: pointer; font-size: 12px; backdrop-filter: blur(4px); }
+.chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); border-color: transparent; }
+.fovbox { display: flex; align-items: center; gap: 6px; background: rgba(20,22,26,.74); color: #e6e7e2; border: 1px solid rgba(255,255,255,.16); border-radius: 999px; padding: 3px 11px; font-size: 12px; }
+.fovbox input { width: 84px; }
+.msg { position: absolute; left: 10px; bottom: 10px; max-width: calc(100% - 20px); background: rgba(20,22,26,.85); color: #e6e7e2; border-radius: 6px; padding: 6px 10px; font-size: 12px; font-family: var(--font-mono); white-space: pre-wrap; }
+.msg:empty { display: none; }
+.hero { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; color: #d9dbd4; text-align: center; }
+.hero[hidden] { display: none; }
+.hero .box { max-width: 540px; display: grid; gap: 14px; }
+.hero h2 { margin: 0; font-size: 20px; font-weight: 600; }
+.hero p { margin: 0; color: #a9ada3; }
+.pipe { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; font-family: var(--font-mono); font-size: 12px; }
+.pipe span { border: 1px solid rgba(255,255,255,.2); border-radius: 4px; padding: 3px 8px; }
+
+.tl-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.tl-top .grow { flex: 1; min-width: 160px; }
+.play { width: 34px; height: 34px; border-radius: 50%; border: 0; background: var(--accent); color: var(--accent-fg); cursor: pointer; display: grid; place-items: center; }
+.play:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+.readout { font-family: var(--font-mono); font-size: 11.5px; color: var(--fg-dim); font-variant-numeric: tabular-nums; }
+.scrub { position: relative; height: 38px; margin-top: 6px; }
+.scrub input[type=range] { position: absolute; left: 0; right: 0; top: 14px; width: 100%; margin: 0; accent-color: var(--accent); }
+.scrub .marks { position: absolute; left: 0; right: 0; top: 0; height: 14px; }
+.mark { position: absolute; top: 0; transform: translateX(-50%); font-family: var(--font-mono); font-size: 10px; color: var(--warn); white-space: nowrap; }
+.mark::after { content: ""; display: block; width: 1px; height: 6px; background: var(--warn); margin: 1px auto 0; }
+.zone { position: absolute; top: 28px; height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--accent) 25%, transparent); pointer-events: none; }
+.opts { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 6px; font-size: 12.5px; color: var(--fg-dim); align-items: center; }
+.opts label { display: flex; gap: 5px; align-items: center; cursor: pointer; }
+.opts select { width: auto; }
+.blend { display: grid; gap: 4px; margin-top: 6px; }
+.blend[hidden] { display: none; }
+.blend .b { display: grid; grid-template-columns: minmax(0, 1fr) 120px 34px; gap: 8px; align-items: center; font-family: var(--font-mono); font-size: 11.5px; color: var(--fg-dim); }
+.blend .b span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+details { padding: 8px 14px; border-bottom: 1px solid var(--line); font-size: 12.5px; }
+details summary { cursor: pointer; color: var(--fg-dim); font-weight: 500; }
+dl.facts { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; margin: 8px 0 0; font-family: var(--font-mono); font-size: 11.5px; }
+dl.facts dt { color: var(--fg-dim); } dl.facts dd { margin: 0; overflow-wrap: anywhere; }
+
+/* Editor en vivo con sincronización precisa */
+#scriptEditorDlg::backdrop { background: rgba(0, 0, 0, 0.58); }
+.ed-code-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--panel-2);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  tab-size: 4;
+}
+.ed-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 12px 14px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  letter-spacing: normal;
+  word-spacing: normal;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  tab-size: 4;
+  box-sizing: border-box;
+}
+#edHighlight {
+  color: var(--fg);
+  pointer-events: none;
+  overflow: hidden;
+  user-select: none;
+}
+#edArea {
+  resize: none;
+  border: 0;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--fg);
+  outline: none;
+  overflow: auto;
+  z-index: 2;
+}
+#edArea::selection {
+  background: color-mix(in srgb, var(--accent) 32%, transparent);
+}
+
+@media (max-width: 860px) {
+  html, body { height: auto; }
+  .app { height: auto; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto;
+         grid-template-areas: "stage" "time" "side"; }
+  .stage { height: 62vh; min-height: 320px; }
+  .list { max-height: 50vh; }
+}
+
+#matDlg { width:min(960px,96vw); height:min(86vh,720px); padding:0; border:1px solid var(--line); border-radius:8px; background:var(--panel); color:var(--fg); position:fixed; inset:0; margin:auto; z-index:9999; }
+#matDlg .mx { display:flex; flex-direction:column; height:100%; }
+#matDlg .mx-h { padding:10px 14px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; }
+#matDlg .mx-b { flex:1; min-height:0; display:grid; grid-template-columns:230px minmax(0,1fr); }
+#matDlg .mx-l { border-right:1px solid var(--line); overflow:auto; padding:6px; }
+#matDlg .mx-r { overflow:auto; padding:12px 14px; display:flex; flex-direction:column; gap:10px; }
+#matDlg .mi { display:block; width:100%; text-align:left; padding:6px 8px; border:1px solid transparent; border-radius:6px; background:none; color:inherit; cursor:pointer; font:inherit; margin-bottom:2px; }
+#matDlg .mi:hover { border-color:var(--line); } #matDlg .mi[aria-selected="true"] { background:var(--accent); color:var(--accent-fg); }
+#matDlg .mi small { display:block; opacity:.75; font-family:var(--font-mono); font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#matDlg .g2 { display:grid; grid-template-columns:1fr 1fr 150px; gap:10px; }
+#matDlg input[type=text], #matDlg select { width:100%; padding:5px 7px; background:var(--bg); color:var(--fg); border:1px solid var(--line); border-radius:6px; font:inherit; font-family:var(--font-mono); font-size:12px; }
+#matDlg .mrow { display:grid; grid-template-columns:150px minmax(0,1fr) 22px 54px 28px; gap:6px; align-items:center; }
+#matDlg .mrow span.lb { font-size:12px; color:var(--fg-dim); }
+#matDlg .val { font-size:12px; display:flex; flex-direction:column; gap:3px; }
+#matDlg .val .e { color:#d9534f; } #matDlg .val .w { color:#c98a12; } #matDlg .val .i { color:var(--fg-dim); } #matDlg .val .o { color:#3c9a5f; }
+#matDlg h4 { margin:0; font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--fg-dim); }
+@media (max-width:700px){ #matDlg .mx-b{grid-template-columns:1fr} #matDlg .mx-l{max-height:140px;border-right:0;border-bottom:1px solid var(--line)} #matDlg .g2{grid-template-columns:1fr} }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="head">
+      <div>
+        <h1>Visor 3D & 1P BF2</h1>
+        <p>Mallas 3D + vehículos (PCO/geometryPart/cámara) + modo 1P.</p>
+      </div>
+      <span class="mode-pill" id="modeBadge">Visor 3D</span>
+    </div>
+    <div class="side-top">
+      <div class="block">
+        <div class="drop" id="drop">Arrastra un <b>.con</b>, <b>.tweak</b>, <b>.bundledmesh</b>, <b>.staticmesh</b>, <b>.skinnedmesh</b> o carpeta</div>
+        <div class="row">
+          <button class="btn primary" id="btnNative" type="button" hidden>Abrir archivo…</button>
+          <button class="btn primary" id="btnCon" type="button">Abrir .con</button>
+          <button class="btn" id="btnFiles" type="button">Archivos / .zip</button>
+          <button class="btn" id="btnFolder" type="button">Carpeta</button>
+          <button class="btn" id="btnToggle1P" type="button" aria-pressed="false">Modo 1P: OFF</button>
+        </div>
+        <input id="inCon" type="file" accept=".con,text/plain" hidden>
+        <input id="inFolder" type="file" webkitdirectory multiple hidden>
+        <input id="inFiles" type="file" multiple hidden>
+        <div class="readout" id="count">Sin archivos cargados aún.</div>
+      </div>
+      <div class="block" id="selects">
+        <label class="f">Modelo / Script cargado<select id="selWeapon"></select></label>
+        <div class="row-2">
+          <label class="f">Geometría (Geom)<select id="selGeom"></select></label>
+          <label class="f">Detalle (LOD)<select id="selLod"></select></label>
+        </div>
+        <div id="onePControls" class="row" style="display:none; gap:8px;">
+          <label class="f" style="flex:1;">Esqueleto (.ske) <span id="skeSavedTag" class="readout"></span><select id="selSke"></select></label>
+          <label class="f" style="flex:1;">Brazos (.skinnedmesh) <span id="armsSavedTag" class="readout"></span><select id="selArms"></select></label>
+        </div>
+        <label class="f" id="incWrap" style="display:none;">Animaciones 1P (.inc)<select id="selInc"></select></label>
+      </div>
+      <details id="tweakBox" hidden><summary>Datos del .con / .tweak</summary><dl class="facts" id="facts"></dl></details>
+    </div>
+    <div class="tabs" role="tablist" id="animTabs">
+      <button class="tab" role="tab" id="tabBundles" aria-selected="true" type="button">Bundles</button>
+      <button class="tab" role="tab" id="tabBafs" aria-selected="false" type="button">.baf sueltos</button>
+    </div>
+    <div class="list" id="list" role="listbox" aria-label="Animaciones"><div class="empty-list">Visor 3D listo. Activá "Modo 1P" para 1P / cámara de vehículo.</div></div>
+  </aside>
+
+  <main class="stage" id="stage">
+    <canvas id="gl"></canvas>
+    <canvas id="ov"></canvas>
+    <div class="toolbar">
+      <button class="chip" id="vCam" type="button" aria-pressed="false" title="Cámara 1P: Camerabone en armas o cámara del vehículo en PCO">Cámara 1P</button>
+      <button class="chip" id="vArms" type="button" aria-pressed="false">Brazos</button>
+      <button class="chip" id="vWeapon" type="button" aria-pressed="true">Modelo</button>
+      <button class="chip" id="vSkel" type="button" aria-pressed="false">Huesos</button>
+      <button class="chip" id="vWire" type="button" aria-pressed="false">Malla</button>
+      <button class="chip" id="vMark" type="button" aria-pressed="false" title="Posiciones del .con / .tweak">Puntos .con/.tweak</button>
+      <button class="chip" id="btnEditScript" type="button" hidden title="Editar .con y .tweak en vivo">Editar .con/.tweak</button>
+      <button class="chip" id="btnMat" type="button" hidden title="Editar materiales: shader, technique, alpha y mapas">Materiales</button>
+      <button class="chip" id="vReset" type="button" title="Centrar cámara">Centrar</button>
+      <span class="fovbox">FOV <input id="fov" type="range" min="30" max="100" value="60" aria-label="Campo de visión"><span id="fovv" class="readout">60</span></span>
+    </div>
+    <div class="msg" id="msg" role="status"></div>
+    <div class="hero" id="hero">
+      <div class="box">
+        <h2>Visor 3D & 1P BF2</h2>
+        <p>Abrí un <b>.con</b>, <b>.bundledmesh</b>, <b>.staticmesh</b> o <b>.skinnedmesh</b>. Soporta vehículos (<b>PlayerControlObject</b>, <b>geometryPart</b>, posiciones de <b>.con/.tweak</b> y cámara 1P) y armas.</p>
+        <div class="pipe"><span>*.con</span><span>*.tweak</span><span>*.bundledmesh</span><span>PlayerControlObject</span><span>geometryPart</span><span>Modo 1P</span></div>
+      </div>
+    </div>
+  </main>
+
+  <section class="time" aria-label="Reproducción">
+    <div class="tl-top">
+      <button class="play" id="play" type="button" aria-label="Reproducir o pausar"><svg width="14" height="14" viewBox="0 0 14 14" id="playIcon"><path d="M3 1.5v11l9-5.5z" fill="currentColor"/></svg></button>
+      <button class="btn" id="stepB" type="button" title="Fotograma anterior">◂</button>
+      <button class="btn" id="stepF" type="button" title="Fotograma siguiente">▸</button>
+      <div class="grow"><b id="curName" style="font-family:var(--font-mono);font-size:13px">—</b> <span class="readout" id="curInfo"></span></div>
+      <div class="readout" id="readout">0.00 s</div>
+    </div>
+    <div class="scrub">
+      <div class="marks" id="marks"></div>
+      <div class="zone" id="zone" hidden></div>
+      <input id="scrub" type="range" min="0" max="1000" value="0" aria-label="Posición en la animación">
+    </div>
+    <div class="opts">
+      <label><input type="checkbox" id="loopPlay" checked> Repetir</label>
+      <label>Velocidad <select id="speed"><option value="0.1">0.1×</option><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option></select></label>
+      <label>Pose base <select id="base"></select></label>
+      <label>FPS <select id="fps"><option>24</option><option selected>30</option><option>60</option></select></label>
+    </div>
+    <div class="blend" id="blend" hidden></div>
+  </section>
+</div>
+
+
+<dialog id="matDlg">
+  <div class="mx">
+    <div class="mx-h">
+      <div style="display:flex;gap:10px;align-items:baseline"><b style="font-size:14px">Editor de materiales</b><span class="readout" id="mxInfo"></span></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn primary" id="mxApply" type="button">Aplicar</button>
+        <button class="btn" id="mxRevert" type="button">Restaurar</button>
+        <button class="btn" id="mxSaveDisk" type="button" hidden>Guardar en disco</button>
+        <button class="btn" id="mxSave" type="button">Descargar malla</button>
+        <button class="btn" id="mxClose" type="button">Cerrar</button>
+      </div>
+    </div>
+    <div class="mx-b">
+      <div class="mx-l" id="mxList"></div>
+      <div class="mx-r">
+        <div class="g2">
+          <label class="f">Shader (.fx)<input type="text" id="mxFx" list="mxFxList" autocomplete="off" spellcheck="false"></label>
+          <label class="f">Technique<input type="text" id="mxTech" list="mxTechList" autocomplete="off" spellcheck="false"></label>
+          <label class="f">Transparencia<select id="mxAlpha"><option value="0">0 · Opaco</option><option value="1">1 · Mezcla alfa</option><option value="2">2 · Alpha test</option></select></label>
+        </div>
+        <div class="readout" id="mxTechNote"></div>
+        <h4>Mapas de textura</h4>
+        <div id="mxMaps" style="display:flex;flex-direction:column;gap:6px"></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+          <button class="btn" id="mxAddMap" type="button">+ Mapa</button>
+          <label style="display:flex;gap:6px;align-items:center;font-size:12px"><input type="checkbox" id="mxAll"> Aplicar a materiales idénticos de todos los LOD/Geom</label>
+        </div>
+        <h4>Validación BF2</h4>
+        <div class="val" id="mxVal"></div>
+        <h4>Geometría (solo lectura)</h4>
+        <div class="readout" id="mxGeo"></div>
+      </div>
+    </div>
+  </div>
+  <datalist id="mxFxList"></datalist><datalist id="mxTechList"></datalist><datalist id="mxTexList"></datalist>
+</dialog>
+
+<dialog id="scriptEditorDlg" style="width:min(880px,95vw);height:min(84vh,700px);padding:0;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--fg);position:fixed;inset:0;margin:auto;z-index:9999;">
+  <div style="display:flex;flex-direction:column;height:100%;">
+    <div style="padding:10px 14px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:8px;">
+      <div style="display:flex;gap:8px;align-items:center;">
+        <b style="font-size:14px;">Editor en vivo .con / .tweak</b>
+        <button class="btn" id="edTabCon" type="button">.con</button>
+        <button class="btn" id="edTabTweak" type="button">.tweak</button>
+      </div>
+      <div style="display:flex;gap:6px;">
+        <button class="btn primary" id="edApply" type="button">Aplicar en vivo</button>
+        <button class="btn" id="edSaveDisk" type="button" hidden>Guardar en disco</button>
+        <button class="btn" id="edDownload" type="button">Descargar</button>
+        <button class="btn" id="edClose" type="button">Cerrar</button>
+      </div>
+    </div>
+    <div id="edFileLabel" style="padding:5px 14px;font-family:var(--font-mono);font-size:11px;color:var(--fg-dim);border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;"></div>
+    <div class="ed-code-wrap" id="edCodeWrap">
+      <pre class="ed-layer" id="edHighlight" aria-hidden="true"></pre>
+      <textarea class="ed-layer" id="edArea" spellcheck="false"></textarea>
+    </div>
+  </div>
+</dialog>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const el = (t, c, txt) => { const e = document.createElement(t); if (c) e.className = c; if (txt != null) e.textContent = txt; return e; };
+const lc = s => String(s || "").toLowerCase();
+const normPath = p => lc(p).replace(/\\/g, "/").replace(/^\.?\//, "");
+const baseName = p => normPath(p).split("/").pop();
+const extOf = p => { const b = baseName(p); const i = b.lastIndexOf("."); return i < 0 ? "" : b.slice(i + 1); };
+function say(t) { $("#msg").textContent = t || ""; }
+
+window.addEventListener("error", e => {
+  say("Error JS: " + (e.message || e.error?.message || "desconocido"));
+});
+
+const STORAGE_KEYS = {
+  skePath: "bf2_1p_last_ske_path",
+  armsPath: "bf2_1p_last_arms_path",
+  conPath: "bf2_1p_last_con_path",
+};
+function savePref(k, v) { try { if (v) localStorage.setItem(k, v); } catch {} }
+function loadPref(k) { try { return localStorage.getItem(k) || ""; } catch { return ""; } }
+
+const M = {
+  ident() { const m = new Float64Array(16); m[0] = m[5] = m[10] = m[15] = 1; return m; },
+  mul(a, b) {
+    const o = new Float64Array(16);
+    for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) {
+      o[c * 4 + r] = a[r] * b[c * 4] + a[4 + r] * b[c * 4 + 1] + a[8 + r] * b[c * 4 + 2] + a[12 + r] * b[c * 4 + 3];
+    }
+    return o;
+  },
+  fromQP(q, p) {
+    const x = q[0], y = q[1], z = q[2], w = q[3], m = new Float64Array(16);
+    m[0] = 1 - 2 * (y * y + z * z); m[1] = 2 * (x * y + z * w); m[2] = 2 * (x * z - y * w);
+    m[4] = 2 * (x * y - z * w); m[5] = 1 - 2 * (x * x + z * z); m[6] = 2 * (y * z + x * w);
+    m[8] = 2 * (x * z + y * w); m[9] = 2 * (y * z - x * w); m[10] = 1 - 2 * (x * x + y * y);
+    m[12] = p[0]; m[13] = p[1]; m[14] = p[2]; m[15] = 1; return m;
+  },
+  fromYawPitchRoll(yawDeg, pitchDeg, rollDeg, pos) {
+    const y = (yawDeg || 0) * Math.PI / 180;
+    const p = (pitchDeg || 0) * Math.PI / 180;
+    const r = (rollDeg || 0) * Math.PI / 180;
+    const cy = Math.cos(y), sy = Math.sin(y);
+    const cp = Math.cos(p), sp = Math.sin(p);
+    const cr = Math.cos(r), sr = Math.sin(r);
+    const ry = [[cy, 0, sy], [0, 1, 0], [-sy, 0, cy]];
+    const rx = [[1, 0, 0], [0, cp, -sp], [0, sp, cp]];
+    const rz = [[cr, -sr, 0], [sr, cr, 0], [0, 0, 1]];
+    const mul3 = (A, B) => {
+      const C = [[0,0,0],[0,0,0],[0,0,0]];
+      for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) {
+        C[i][j] = A[i][0]*B[0][j] + A[i][1]*B[1][j] + A[i][2]*B[2][j];
+      }
+      return C;
+    };
+    const R = mul3(mul3(ry, rx), rz);
+    const m = new Float64Array(16);
+    m[0] = R[0][0]; m[1] = R[1][0]; m[2] = R[2][0];
+    m[4] = R[0][1]; m[5] = R[1][1]; m[6] = R[2][1];
+    m[8] = R[0][2]; m[9] = R[1][2]; m[10] = R[2][2];
+    m[12] = pos ? pos[0] : 0; m[13] = pos ? pos[1] : 0; m[14] = pos ? pos[2] : 0; m[15] = 1;
+    return m;
+  },
+  transformPt(m, x, y, z) {
+    return [
+      m[0] * x + m[4] * y + m[8] * z + m[12],
+      m[1] * x + m[5] * y + m[9] * z + m[13],
+      m[2] * x + m[6] * y + m[10] * z + m[14],
+    ];
+  },
+  rigidInv(a) {
+    const o = new Float64Array(16);
+    o[0] = a[0]; o[1] = a[4]; o[2] = a[8]; o[4] = a[1]; o[5] = a[5]; o[6] = a[9]; o[8] = a[2]; o[9] = a[6]; o[10] = a[10]; o[15] = 1;
+    o[12] = -(o[0] * a[12] + o[4] * a[13] + o[8] * a[14]);
+    o[13] = -(o[1] * a[12] + o[5] * a[13] + o[9] * a[14]);
+    o[14] = -(o[2] * a[12] + o[6] * a[13] + o[10] * a[14]);
+    return o;
+  },
+  persp(fovY, asp, n, f) {
+    const t = 1 / Math.tan(fovY / 2), o = new Float64Array(16);
+    o[0] = t / asp; o[5] = t; o[10] = (f + n) / (n - f); o[11] = -1; o[14] = 2 * f * n / (n - f); return o;
+  },
+  lookAt(e, c, u) {
+    let zx = e[0] - c[0], zy = e[1] - c[1], zz = e[2] - c[2], l = Math.hypot(zx, zy, zz) || 1; zx /= l; zy /= l; zz /= l;
+    let xx = u[1] * zz - u[2] * zy, xy = u[2] * zx - u[0] * zz, xz = u[0] * zy - u[1] * zx; l = Math.hypot(xx, xy, xz) || 1; xx /= l; xy /= l; xz /= l;
+    const yx = zy * xz - zz * xy, yy = zz * xx - zx * xz, yz = zx * xy - zy * xx, o = new Float64Array(16);
+    o[0] = xx; o[1] = yx; o[2] = zx; o[4] = xy; o[5] = yy; o[6] = zy; o[8] = xz; o[9] = yz; o[10] = zz;
+    o[12] = -(xx * e[0] + xy * e[1] + xz * e[2]); o[13] = -(yx * e[0] + yy * e[1] + yz * e[2]); o[14] = -(zx * e[0] + zy * e[1] + zz * e[2]); o[15] = 1; return o;
+  },
+};
+const FLIPZ = (() => { const f = M.ident(); f[10] = -1; return f; })();
+
+const store = { entries: [], byName: new Map() };
+
+function addEntry(path, size, read) {
+  const p = normPath(path), n = baseName(p);
+  const existing = store.byName.get(n);
+  if (existing) {
+    const same = existing.find(x => x.path === p);
+    if (same) { same.size = size; same.read = read; same.cache = null; same.textCache = undefined; return same; }
+  }
+  const e = { path: p, name: n, ext: extOf(n), size, read, cache: null, textCache: undefined };
+  e.get = () => (e.cache || (e.cache = read()));
+  store.entries.push(e);
+  if (!store.byName.has(n)) store.byName.set(n, []);
+  store.byName.get(n).push(e);
+  return e;
+}
+
+function findEntry(want) {
+  if (!want) return null;
+  const clean = normPath(want).replace(/\.(bundledmesh|staticmesh|skinnedmesh|ske|inc|tweak|con|baf|dds)$/i, "");
+  const nFull = baseName(normPath(want));
+  const nStem = baseName(clean);
+  const candidates = [
+    ...(store.byName.get(nFull) || []),
+    ...(store.byName.get(nStem + ".bundledmesh") || []),
+    ...(store.byName.get(nStem + ".staticmesh") || []),
+    ...(store.byName.get(nStem + ".skinnedmesh") || []),
+    ...(store.byName.get(nStem + ".inc") || []),
+    ...(store.byName.get(nStem + ".baf") || []),
+    ...(store.byName.get(nStem + ".dds") || []),
+    ...(store.byName.get(nStem + ".tweak") || []),
+    ...(store.byName.get(nStem + ".con") || []),
+  ];
+  if (!candidates.length) return null;
+  const parts = normPath(want).split("/");
+  let best = null, bs = -1;
+  for (const e of candidates) {
+    const ep = e.path.split("/");
+    let s = 0;
+    while (s < parts.length && s < ep.length && parts[parts.length - 1 - s].replace(/\..+$/, "") === ep[ep.length - 1 - s].replace(/\..+$/, "")) s++;
+    if (s > bs) { bs = s; best = e; }
+  }
+  return best;
+}
+
+async function readZipIndex(file) {
+  const size = file.size, tl = Math.min(size, 66000);
+  const tail = new DataView(await file.slice(size - tl, size).arrayBuffer());
+  let p = tl - 22;
+  while (p >= 0 && tail.getUint32(p, true) !== 0x06054b50) p--;
+  if (p < 0) throw new Error("no es un .zip válido");
+  const total = tail.getUint16(p + 10, true), cdSize = tail.getUint32(p + 12, true), cdOff = tail.getUint32(p + 16, true);
+  if (cdOff === 0xffffffff) throw new Error(".zip de más de 4 GB sin soporte");
+  const cd = new DataView(await file.slice(cdOff, cdOff + cdSize).arrayBuffer());
+  const out = []; let q = 0;
+  for (let i = 0; i < total && q + 46 <= cd.byteLength; i++) {
+    if (cd.getUint32(q, true) !== 0x02014b50) break;
+    const method = cd.getUint16(q + 10, true), csize = cd.getUint32(q + 20, true), usize = cd.getUint32(q + 24, true);
+    const nl = cd.getUint16(q + 28, true), xl = cd.getUint16(q + 30, true), cl = cd.getUint16(q + 32, true), off = cd.getUint32(q + 42, true);
+    const name = new TextDecoder("latin1").decode(new Uint8Array(cd.buffer, q + 46, nl));
+    out.push({ name, method, csize, usize, off });
+    q += 46 + nl + xl + cl;
+  }
+  return out;
+}
+
+async function readZipEntry(file, e) {
+  const lh = new DataView(await file.slice(e.off, e.off + 30).arrayBuffer());
+  const start = e.off + 30 + lh.getUint16(26, true) + lh.getUint16(28, true);
+  const raw = file.slice(start, start + e.csize);
+  if (e.method === 0) return raw.arrayBuffer();
+  if (e.method !== 8) throw new Error("compresión no soportada en " + e.name);
+  const ds = raw.stream().pipeThrough(new DecompressionStream("deflate-raw"));
+  return new Response(ds).arrayBuffer();
+}
+
+async function ingest(items, opts = {}) {
+  const added = [];
+  for (const { file, path } of items) {
+    if (lc(file.name).endsWith(".zip")) {
+      try {
+        const idx = await readZipIndex(file);
+        const root = path.replace(/\.zip$/i, "");
+        for (const z of idx) {
+          if (z.name.endsWith("/")) continue;
+          added.push(addEntry(root + "/" + z.name, z.usize, () => readZipEntry(file, z)));
+        }
+      } catch (err) { say("No pude leer " + file.name + ": " + err.message); }
+    } else {
+      const ent = addEntry(path, file.size, () => file.arrayBuffer());
+      ent.imported = true;
+      added.push(ent);
+    }
+  }
+  $("#count").textContent = store.entries.length + " archivos disponibles";
+  refreshSelectors(opts);
+  return added;
+}
+
+function walkEntry(ent, prefix, out) {
+  return new Promise(res => {
+    if (ent.isFile) ent.file(f => { out.push({ file: f, path: prefix + ent.name }); res(); }, () => res());
+    else {
+      const rd = ent.createReader(), all = [];
+      const next = () => rd.readEntries(async es => {
+        if (!es.length) { for (const c of all) await walkEntry(c, prefix + ent.name + "/", out); res(); }
+        else { all.push(...es); next(); }
+      }, () => res());
+      next();
+    }
+  });
+}
+
+class Rd {
+  constructor(b) { this.dv = new DataView(b); this.u8 = new Uint8Array(b); this.p = 0; }
+  i16() { const v = this.dv.getInt16(this.p, true); this.p += 2; return v; }
+  u16() { const v = this.dv.getUint16(this.p, true); this.p += 2; return v; }
+  i32() { const v = this.dv.getInt32(this.p, true); this.p += 4; return v; }
+  u32() { const v = this.dv.getUint32(this.p, true); this.p += 4; return v; }
+  f32() { const v = this.dv.getFloat32(this.p, true); this.p += 4; return v; }
+  b() { return this.u8[this.p++]; }
+  str(n) { let s = ""; for (let i = 0; i < n; i++) { const c = this.u8[this.p + i]; if (c) s += String.fromCharCode(c); } this.p += n; return s; }
+}
+
+function parseSke(buf) {
+  const r = new Rd(buf); r.i32(); const n = r.i32(), nodes = [];
+  for (let i = 0; i < n; i++) {
+    const l = r.u16(), name = l ? r.str(l) : "";
+    const parent = r.i16(), q = [r.f32(), r.f32(), r.f32(), r.f32()], p = [r.f32(), r.f32(), r.f32()];
+    q[0] = -q[0]; q[1] = -q[1]; q[2] = -q[2];
+    const bad = !isFinite(Math.hypot(p[0], p[1], p[2])) || Math.hypot(p[0], p[1], p[2]) > 999;
+    nodes.push({ name, parent, q: bad ? [0, 0, 0, 1] : q, p: bad ? [0, 0, 0] : p, junk: bad });
+  }
+  const idx = {}; nodes.forEach((n, i) => idx[lc(n.name)] = i);
+  return { nodes, idx };
+}
+
+function parseBaf(buf) {
+  const r = new Rd(buf), ver = r.i32(), nb = r.i16(), ids = [];
+  for (let i = 0; i < nb; i++) ids.push(r.i16());
+  const F = r.i32(), prec = r.b(), pm = 32767 / Math.pow(2, 15 - prec);
+  const rot = new Float32Array(nb * F * 4), pos = new Float32Array(nb * F * 3);
+  for (let b = 0; b < nb; b++) {
+    r.i16();
+    for (let j = 0; j < 7; j++) {
+      let left = r.i16(), cur = 0;
+      while (left > 0) {
+        const head = r.b(), rle = head & 0x80, nf = head & 0x7f, nxt = r.b();
+        let v = 0; if (rle) v = r.i16();
+        for (let m = 0; m < nf; m++) {
+          if (!rle) v = r.i16();
+          if (cur < F) {
+            if (j < 4) rot[(b * F + cur) * 4 + j] = (j < 3 ? -1 : 1) * v / 32767;
+            else pos[(b * F + cur) * 3 + (j - 4)] = v / pm;
+          }
+          cur++;
+        }
+        left -= nxt;
+      }
+    }
+  }
+  return { ver, ids, F, rot, pos };
+}
+
+function parseMesh(buf, ext) {
+  const r = new Rd(buf), m = { ext };
+  r.u32(); m.version = r.u32(); r.u32(); r.u32(); r.u32(); r.b();
+  const gn = r.i32(); m.geoms = [];
+  for (let g = 0; g < gn; g++) { const ln = r.i32(); m.geoms.push({ lods: Array.from({ length: ln }, () => ({})) }); }
+  const an = r.i32(); m.attribs = [];
+  for (let i = 0; i < an; i++) m.attribs.push({ flag: r.i16(), offset: r.i16(), type: r.i16(), usage: r.i16() });
+  r.i32(); m.stride = r.i32(); m.vnum = r.i32();
+  m.vdata = buf.slice(r.p, r.p + m.stride * m.vnum); r.p += m.stride * m.vnum;
+  const inum = r.i32(); m.indices = new Uint16Array(buf.slice(r.p, r.p + inum * 2)); r.p += inum * 2;
+  if (ext !== "skinnedmesh") r.i32();
+  for (const g of m.geoms) for (const l of g.lods) {
+    r.p += 24; if (m.version <= 6) r.p += 12;
+    if (ext === "skinnedmesh") {
+      const rn = r.i32(); l.rigs = [];
+      for (let i = 0; i < rn; i++) {
+        const bn = r.i32(), bones = [];
+        for (let j = 0; j < bn; j++) { const id = r.i32(), mat = new Float64Array(16); for (let k = 0; k < 16; k++) mat[k] = r.f32(); bones.push({ id, mat }); }
+        l.rigs.push(bones);
+      }
+    } else { const nn = r.i32(); l.nodenum = nn; if (ext !== "bundledmesh") r.p += nn * 64; }
+  }
+  const rstr = () => { const n = r.i32(); if (!n) return ""; m.strNul = r.u8[r.p + n - 1] === 0; return r.str(n); };
+  m.matStart = r.p; m.strNul = true;
+  for (const g of m.geoms) for (const l of g.lods) {
+    const mn = r.i32(); l.mats = [];
+    for (let i = 0; i < mn; i++) {
+      const mt = {};
+      mt.alpha = ext !== "skinnedmesh" ? r.i32() : 0;
+      mt.fx = rstr(); mt.tech = rstr();
+      const k = r.i32(); mt.maps = []; for (let j = 0; j < k; j++) mt.maps.push(rstr());
+      mt.vstart = r.i32(); mt.istart = r.i32(); mt.inum = r.i32(); mt.vnum = r.i32(); mt.u4 = r.i32(); mt.u5 = r.i32();
+      if (ext !== "skinnedmesh" && m.version === 11) { mt.bnd = new Uint8Array(buf.slice(r.p, r.p + 24)); r.p += 24; }
+      mt._orig = { fx: mt.fx, tech: mt.tech, maps: mt.maps.slice(), alpha: mt.alpha };
+      l.mats.push(mt);
+    }
+  }
+  return m;
+}
+
+function parseDDS(buf) {
+  const dv = new DataView(buf);
+  if (dv.getUint32(0, true) !== 0x20534444) throw new Error("no es DDS");
+  const h = dv.getUint32(12, true), w = dv.getUint32(16, true), pf = dv.getUint32(80, true), cc = dv.getUint32(84, true);
+  const bpp = dv.getUint32(88, true), mr = dv.getUint32(92, true), mg = dv.getUint32(96, true), mb = dv.getUint32(100, true), ma = dv.getUint32(104, true);
+  const px = new Uint8Array(w * h * 4), src = new Uint8Array(buf, 128);
+  const c565 = v => [((v >> 11) & 31) * 255 / 31, ((v >> 5) & 63) * 255 / 63, (v & 31) * 255 / 31];
+  if (pf & 4) {
+    const kind = String.fromCharCode(cc & 255, (cc >> 8) & 255, (cc >> 16) & 255, (cc >> 24) & 255);
+    const bs = kind === "DXT1" ? 8 : 16;
+    const bw = Math.max(1, (w + 3) >> 2), bh = Math.max(1, (h + 3) >> 2);
+    for (let by = 0; by < bh; by++) for (let bx = 0; bx < bw; bx++) {
+      const o = (by * bw + bx) * bs, co = kind === "DXT1" ? o : o + 8;
+      const c0 = src[co] | (src[co + 1] << 8), c1 = src[co + 2] | (src[co + 3] << 8);
+      const a = c565(c0), b = c565(c1), pal = [a, b, null, null], pa = [255, 255, 255, kind === "DXT1" && c0 <= c1 ? 0 : 255];
+      if (c0 > c1 || kind !== "DXT1") { pal[2] = a.map((v, i) => (2 * v + b[i]) / 3); pal[3] = a.map((v, i) => (v + 2 * b[i]) / 3); }
+      else { pal[2] = a.map((v, i) => (v + b[i]) / 2); pal[3] = [0, 0, 0]; }
+      const bits = (src[co + 4] | (src[co + 5] << 8) | (src[co + 6] << 16) | (src[co + 7] << 24)) >>> 0;
+      let al = null;
+      if (kind === "DXT5") {
+        const a0 = src[o], a1 = src[o + 1], tb = [a0, a1];
+        if (a0 > a1) for (let i = 1; i < 7; i++) tb.push(((7 - i) * a0 + i * a1) / 7); else { for (let i = 1; i < 5; i++) tb.push(((5 - i) * a0 + i * a1) / 5); tb.push(0, 255); }
+        al = []; let lo = src[o + 2] | (src[o + 3] << 8) | (src[o + 4] << 16), hi = src[o + 5] | (src[o + 6] << 8) | (src[o + 7] << 16);
+        const all = BigInt(lo) | (BigInt(hi) << 24n);
+        for (let i = 0; i < 16; i++) al.push(tb[Number((all >> BigInt(3 * i)) & 7n)]);
+      }
+      for (let i = 0; i < 16; i++) {
+        const x = bx * 4 + (i & 3), y = by * 4 + (i >> 2); if (x >= w || y >= h) continue;
+        const ci = (bits >> (2 * i)) & 3, k = (y * w + x) * 4, c = pal[ci];
+        px[k] = c[0]; px[k + 1] = c[1]; px[k + 2] = c[2];
+        px[k + 3] = kind === "DXT1" ? pa[ci] : kind === "DXT3" ? (((src[o + (i >> 1)] >> ((i & 1) * 4)) & 15) * 17) : al[i];
+      }
+    }
+  } else if (bpp === 32 || bpp === 24) {
+    const bytes = bpp / 8, sh = m => m ? Math.log2(m & -m) : 0;
+    for (let i = 0; i < w * h; i++) {
+      let v = 0; for (let k = 0; k < bytes; k++) v |= src[i * bytes + k] << (8 * k);
+      v >>>= 0; px[i * 4] = (v & mr) >>> sh(mr); px[i * 4 + 1] = (v & mg) >>> sh(mg); px[i * 4 + 2] = (v & mb) >>> sh(mb); px[i * 4 + 3] = ma ? (v & ma) >>> sh(ma) : 255;
+    }
+  } else throw new Error("DDS sin soporte");
+  return { w, h, px };
+}
+
+function parseInc(text) {
+  const anims = {}, bundles = [], trig = {}; let curA = null, curB = null, curT = null;
+  for (let raw of text.split(/\r?\n/)) {
+    const line = raw.trim(); if (!line || /^rem\b/i.test(line)) continue;
+    const sp = line.search(/\s/), key = sp < 0 ? line : line.slice(0, sp), val = sp < 0 ? "" : line.slice(sp + 1).trim();
+    switch (key) {
+      case "animationSystem.createAnimation": curA = { path: val, key: baseName(val), looping: true, length: null }; anims[curA.key] = curA; curB = curT = null; break;
+      case "animationManager.looping": if (curA) curA.looping = val !== "0"; break;
+      case "animationManager.length": if (curA) curA.length = parseFloat(val); break;
+      case "animationSystem.createBundle": curB = { name: val, looping: true, fadeIn: 0, fadeOut: 0, abrupt: false, anims: [], events: [], msgs: new Set() }; bundles.push(curB); curA = curT = null; break;
+      case "animationBundle.isLooping": if (curB) curB.looping = val !== "0"; break;
+      case "animationBundle.fadeInTime": if (curB) curB.fadeIn = parseFloat(val) || 0; break;
+      case "animationBundle.fadeOutTime": if (curB) curB.fadeOut = parseFloat(val) || 0; break;
+      case "animationBundle.abruptPlayback": if (curB) curB.abrupt = val !== "0"; break;
+      case "animationBundle.addAnimation": if (curB) curB.anims.push(val); break;
+      case "animationBundle.addEvent": if (curB) curB.events.push({ name: val, t: 0 }); break;
+      case "animationBundle.setEventStartTime": if (curB) { const [n, t] = val.split(/\s+/); const e = curB.events.find(x => x.name === n); if (e) e.t = parseFloat(t) || 0; } break;
+      case "animationSystem.createTrigger": { const [type, name] = val.split(/\s+/); curT = { type, name: name || type, bundles: [], children: [], msg: null }; trig[curT.name] = curT; curA = curB = null; break; }
+      case "animationTrigger.addBundle": if (curT) curT.bundles.push(val); break;
+      case "animationTrigger.addChild": if (curT) curT.children.push(val); break;
+      case "animationTrigger.message": if (curT) curT.msg = parseInt(val, 10); break;
+    }
+  }
+  const byName = {}; bundles.forEach(b => byName[b.name] = b);
+  const collect = (n, f, seen) => { const t = trig[n]; if (!t || seen.has(n)) return; seen.add(n); t.bundles.forEach(f); t.children.forEach(c => collect(c, f, seen)); };
+  for (const t of Object.values(trig)) {
+    if (t.msg != null) collect(t.name, b => { if (byName[b]) byName[b].msgs.add(t.msg); }, new Set());
+  }
+  if (trig.startup) trig.startup.bundles.forEach(b => { if (byName[b]) byName[b].startup = true; });
+  return { anims, bundles };
+}
+
+function parseConScripts(texts) {
+  const templates = new Map();
+  let curTpl = null;
+  let lastChild = null;
+  let rootGeometry = "";
+  let rootTemplateKey = "";
+  let animSystem1P = "";
+  let isPCO = false;
+  const facts = [];
+  const cameraCandidates = [];
+
+  const ensureTpl = (name, type = "") => {
+    const key = lc(name);
+    if (!templates.has(key)) {
+      templates.set(key, {
+        key,
+        name,
+        type,
+        geometry: "",
+        geometryPart: null,
+        children: [],
+        isCamera: lc(type) === "camera" || /_camera\b/i.test(name),
+        hasRelativeOffset: false,
+        relOffset: [0, 0, 0],
+        pivot: [0, 0, 0],
+        pos: [0, 0, 0],
+        rot: [0, 0, 0],
+      });
+    }
+    const t = templates.get(key);
+    if (type) t.type = type;
+    if (lc(type) === "camera" || /_camera\b/i.test(name)) t.isCamera = true;
+    return t;
+  };
+
+  const wantFacts = /^(ObjectTemplate\.(itemIndex|delayToUse|geometry|geometryPart|animationSystem1P|ammo\.(reloadTime|magSize|nrOfMags)|animation\.(useShiftAnimation|shiftDelay)|fire\.addFireRate|zoom\.(zoomDelay|addZoomFactor)))\s+(.+)$/;
+
+  for (const text of texts) {
+    for (let raw of text.split(/\r?\n/)) {
+      let line = raw.trim();
+      if (!line || /^rem\b/i.test(line)) continue;
+      line = line.replace(/^["']|["']$/g, "");
+
+      let m;
+      if ((m = line.match(/^ObjectTemplate\.(?:create|activeSafe)\s+(\S+)\s+(.+)$/i))) {
+        const tType = m[1].trim();
+        const tName = m[2].trim().replace(/^["']|["']$/g, "");
+        if (/playercontrolobject/i.test(tType)) {
+          isPCO = true;
+          if (!rootTemplateKey) rootTemplateKey = lc(tName);
+        }
+        curTpl = ensureTpl(tName, tType);
+        if (!rootTemplateKey) rootTemplateKey = curTpl.key;
+        lastChild = null;
+        continue;
+      }
+
+      if ((m = line.match(/^ObjectTemplate\.geometry\s+(.+)$/i))) {
+        const gVal = m[1].trim().replace(/^["']|["']$/g, "");
+        if (!rootGeometry) rootGeometry = gVal;
+        if (curTpl) {
+          curTpl.geometry = gVal;
+          if (!rootTemplateKey || normPath(gVal) === normPath(rootGeometry)) rootTemplateKey = curTpl.key;
+        }
+        continue;
+      }
+
+      if ((m = line.match(/^ObjectTemplate\.geometryPart\s+(-?\d+)/i))) {
+        const gp = parseInt(m[1], 10);
+        if (curTpl) curTpl.geometryPart = gp;
+        continue;
+      }
+
+      if ((m = line.match(/^ObjectTemplate\.animationSystem1P\s+(.+)$/i))) {
+        animSystem1P = m[1].trim().replace(/^["']|["']$/g, "");
+        continue;
+      }
+
+      if ((m = line.match(/^ObjectTemplate\.hasRelativeOffset\s+(\d+)/i))) {
+        if (curTpl) curTpl.hasRelativeOffset = parseInt(m[1], 10) !== 0;
+        continue;
+      }
+
+      if ((m = line.match(/^ObjectTemplate\.relativePositionOffset\s+(.+)$/i))) {
+        const parts = m[1].trim().split("/").map(Number);
+        if (parts.length === 3 && parts.every(isFinite) && curTpl) {
+          curTpl.relOffset = parts;
+        }
+        continue;
+      }
+
+      if ((m = line.match(/^ObjectTemplate\.setPivotPosition\s+(.+)$/i))) {
+        const parts = m[1].trim().split("/").map(Number);
+        if (parts.length === 3 && parts.every(isFinite) && curTpl) {
+          curTpl.pivot = parts;
+        }
+        continue;
+      }
+
+      if ((m = line.match(/^ObjectTemplate\.addTemplate\s+(\S+)/i))) {
+        const childName = m[1].trim().replace(/^["']|["']$/g, "");
+        const ch = { name: childName, pos: [0, 0, 0], rot: [0, 0, 0] };
+        if (curTpl) curTpl.children.push(ch);
+        lastChild = ch;
+        continue;
+      }
+
+      if ((m = line.match(/^ObjectTemplate\.setPosition\s+(.+)$/i))) {
+        const parts = m[1].trim().split("/").map(Number);
+        if (parts.length === 3 && parts.every(isFinite)) {
+          if (lastChild) {
+            lastChild.pos = parts;
+          } else if (curTpl) {
+            curTpl.pos = parts;
+          }
+        }
+        continue;
+      }
+
+      if ((m = line.match(/^ObjectTemplate\.setRotation\s+(.+)$/i))) {
+        const parts = m[1].trim().split("/").map(Number);
+        if (parts.length === 3 && parts.every(isFinite)) {
+          if (lastChild) {
+            lastChild.rot = parts;
+          } else if (curTpl) {
+            curTpl.rot = parts;
+          }
+        }
+        continue;
+      }
+
+      if ((m = line.match(wantFacts))) {
+        facts.push([m[1].replace("ObjectTemplate.", ""), m[m.length - 1]]);
+      }
+    }
+  }
+
+  const partTransforms = new Map();
+  partTransforms.set(0, M.ident());
+  const worldMarkers = [];
+
+  const childTargets = new Set();
+  for (const tpl of templates.values()) {
+    for (const ch of tpl.children) childTargets.add(lc(ch.name));
+  }
+
+  const visited = new Set();
+  const walkHierarchy = (tplKey, parentMat) => {
+    if (!tplKey || visited.has(tplKey)) return;
+    visited.add(tplKey);
+    const tpl = templates.get(tplKey);
+    if (!tpl) { visited.delete(tplKey); return; }
+
+    let selfMat = parentMat;
+    if (tpl.hasRelativeOffset && tpl.relOffset) {
+      selfMat = M.mul(selfMat, M.fromYawPitchRoll(0, 0, 0, tpl.relOffset));
+    }
+
+    if (tpl.geometryPart != null && tpl.geometryPart >= 0 && !partTransforms.has(tpl.geometryPart)) {
+      partTransforms.set(tpl.geometryPart, selfMat);
+    }
+
+    for (const ch of tpl.children) {
+      const chTpl = templates.get(lc(ch.name));
+      const basePos = [
+        (ch.pos[0] || 0) + (chTpl ? (chTpl.pos[0] || 0) : 0),
+        (ch.pos[1] || 0) + (chTpl ? (chTpl.pos[1] || 0) : 0),
+        (ch.pos[2] || 0) + (chTpl ? (chTpl.pos[2] || 0) : 0),
+      ];
+      const baseRot = [
+        (ch.rot[0] || 0) + (chTpl ? (chTpl.rot[0] || 0) : 0),
+        (ch.rot[1] || 0) + (chTpl ? (chTpl.rot[1] || 0) : 0),
+        (ch.rot[2] || 0) + (chTpl ? (chTpl.rot[2] || 0) : 0),
+      ];
+      let childMat = M.mul(selfMat, M.fromYawPitchRoll(baseRot[0], baseRot[1], baseRot[2], basePos));
+      if (chTpl && chTpl.hasRelativeOffset && chTpl.relOffset) {
+        childMat = M.mul(childMat, M.fromYawPitchRoll(0, 0, 0, chTpl.relOffset));
+      }
+
+      const wPos = M.transformPt(childMat, 0, 0, 0);
+      worldMarkers.push({ name: ch.name, pos: wPos });
+
+      if (chTpl && chTpl.geometryPart != null && chTpl.geometryPart >= 0) {
+        partTransforms.set(chTpl.geometryPart, childMat);
+      }
+
+      if (/camera/i.test(ch.name) || (chTpl && chTpl.isCamera)) {
+        cameraCandidates.push({
+          name: ch.name,
+          pos: wPos,
+          rot: baseRot,
+          mat: childMat,
+        });
+      }
+
+      if (chTpl) {
+        walkHierarchy(chTpl.key, childMat);
+      }
+    }
+    visited.delete(tplKey);
+  };
+
+  if (rootTemplateKey && templates.has(rootTemplateKey)) {
+    walkHierarchy(rootTemplateKey, M.ident());
+  }
+  for (const [key, tpl] of templates.entries()) {
+    if (!childTargets.has(key)) {
+      walkHierarchy(key, M.ident());
+    }
+  }
+
+  const driverCam =
+    cameraCandidates.find(c => /driver|pilot|1p/i.test(c.name)) ||
+    cameraCandidates.find(c => !/passenger/i.test(c.name)) ||
+    cameraCandidates[0] ||
+    null;
+
+  return {
+    geometry: rootGeometry,
+    animSystem1P,
+    isPCO,
+    partTransforms,
+    camera: driverCam,
+    markers: worldMarkers.filter(x => x.pos && x.pos.length === 3 && x.pos.every(isFinite)),
+    facts,
+  };
+}
+
+const S = {
+  mode1P: false,
+  geom: 0,
+  lod: 0,
+  activeMeshData: null,
+  ske: null, weapon: null, inc: null, tweak: null,
+  armsObj: null, weapObj: null,
+  bundles: [], incAnims: {}, bafCache: new Map(),
+  tab: "bundles", cur: null,
+  t: 0, playing: true,
+  view: { cam: false, yaw: 0.75, pitch: 0.25, dist: 2.8, target: [0, 0.8, 0], fov: 60, vehYaw: 0, vehPitch: 0 },
+  show: { arms: false, weapon: true, skel: false, wire: false, mark: false },
+  W: null, busy: false, meshCache: new WeakMap(),
+};
+
+function setMode1P(enabled) {
+  S.mode1P = !!enabled;
+  $("#btnToggle1P").setAttribute("aria-pressed", S.mode1P ? "true" : "false");
+  $("#btnToggle1P").textContent = S.mode1P ? "Modo 1P: ON" : "Modo 1P: OFF";
+  $("#modeBadge").textContent = S.mode1P ? "Modo 1P" : "Visor 3D";
+  $("#modeBadge").classList.toggle("on1p", S.mode1P);
+  $("#onePControls").style.display = S.mode1P ? "flex" : "none";
+  $("#incWrap").style.display = S.mode1P ? "block" : "none";
+
+  const isVehicle = !!(S.tweak && S.tweak.isPCO);
+  $("#onePControls").style.display = (S.mode1P && !isVehicle) ? "flex" : "none";
+  $("#incWrap").style.display = (S.mode1P && !isVehicle) ? "block" : "none";
+  if (S.mode1P) {
+    S.show.arms = !isVehicle;
+    S.view.cam = true;
+    S.view.vehYaw = 0;
+    S.view.vehPitch = 0;
+    if (isVehicle) {
+      S.cur = null;
+      S.bundles = [];
+      S.W = null;
+      if (S.activeMeshData && S.activeMeshData.geoms.length > 1 && S.geom === 0) {
+        S.geom = 1;
+        $("#selGeom").value = "1";
+        populateGeomLod(S.activeMeshData);
+        S._wp = "";
+      }
+    }
+    $("#vArms").setAttribute("aria-pressed", S.show.arms ? "true" : "false");
+    $("#vCam").setAttribute("aria-pressed", "true");
+  } else {
+    S.show.arms = false;
+    S.view.cam = false;
+    $("#vArms").setAttribute("aria-pressed", "false");
+    $("#vCam").setAttribute("aria-pressed", "false");
+  }
+  loadAll(false);
+}
+
+function populateGeomLod(meshData) {
+  const selG = $("#selGeom"), selL = $("#selLod");
+  const prevG = selG.value, prevL = selL.value;
+  selG.innerHTML = "";
+  const gCount = (meshData && meshData.geoms) ? meshData.geoms.length : 0;
+  if (!gCount) {
+    const o = el("option", null, "Geom 0"); o.value = "0"; selG.appendChild(o);
+  } else {
+    for (let g = 0; g < gCount; g++) {
+      const lCount = meshData.geoms[g].lods.length;
+      const o = el("option", null, "Geom " + g + " (" + lCount + " LODs)");
+      o.value = String(g);
+      selG.appendChild(o);
+    }
+  }
+  if ([...selG.options].some(o => o.value === prevG)) selG.value = prevG;
+  else selG.value = "0";
+  S.geom = parseInt(selG.value, 10) || 0;
+
+  selL.innerHTML = "";
+  const lCount = (meshData && meshData.geoms && meshData.geoms[S.geom]) ? meshData.geoms[S.geom].lods.length : 0;
+  if (!lCount) {
+    const o = el("option", null, "LOD 0"); o.value = "0"; selL.appendChild(o);
+  } else {
+    for (let l = 0; l < lCount; l++) {
+      const o = el("option", null, "LOD " + l);
+      o.value = String(l);
+      selL.appendChild(o);
+    }
+  }
+  if ([...selL.options].some(o => o.value === prevL)) selL.value = prevL;
+  else selL.value = "0";
+  S.lod = parseInt(selL.value, 10) || 0;
+}
+
+function fitCameraToObject(obj) {
+  if (!obj || !obj.src || !obj.n) return;
+  let minX = Infinity, minY = Infinity, minZ = Infinity;
+  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+  const s = obj.out && obj.out.length === obj.n * 3 ? obj.out : obj.src;
+  const useOut = s === obj.out;
+  for (let v = 0; v < obj.n; v++) {
+    const x = s[v * 3], y = s[v * 3 + 1], z = useOut ? s[v * 3 + 2] : -s[v * 3 + 2];
+    if (x < minX) minX = x; if (y < minY) minY = y; if (z < minZ) minZ = z;
+    if (x > maxX) maxX = x; if (y > maxY) maxY = y; if (z > maxZ) maxZ = z;
+  }
+  if (!isFinite(minX)) return;
+  const cx = (minX + maxX) * 0.5, cy = (minY + maxY) * 0.5, cz = (minZ + maxZ) * 0.5;
+  const rad = Math.max(0.35, Math.hypot(maxX - minX, maxY - minY, maxZ - minZ) * 0.65);
+  S.view.target = [cx, cy, -cz];
+  S.view.dist = Math.max(0.7, Math.min(45, rad * 1.85));
+  S.view.yaw = 0.72;
+  S.view.pitch = 0.24;
+}
+
+function fillSelect(sel, list, prefPath, prefFn) {
+  const keep = sel.value; sel.innerHTML = "";
+  if (!list.length) { const o = el("option", null, "— ninguno —"); o.value = ""; sel.appendChild(o); return; }
+  for (const e of list.slice(0, 600)) { const o = el("option", null, e.path.length > 60 ? "…" + e.path.slice(-58) : e.path); o.value = e.path; sel.appendChild(o); }
+  const saved = prefPath ? list.find(e => e.path === prefPath || e.name === baseName(prefPath)) : null;
+  const k = saved || list.find(e => e.path === keep) || (prefFn ? list.find(prefFn) : null) || list[0];
+  sel.value = k.path;
+}
+const ofExt = x => store.entries.filter(e => e.ext === x);
+
+function updateSavedTags() {
+  const sp = loadPref(STORAGE_KEYS.skePath);
+  const ap = loadPref(STORAGE_KEYS.armsPath);
+  $("#skeSavedTag").textContent = sp ? "(" + baseName(sp) + ")" : "";
+  $("#armsSavedTag").textContent = ap ? "(" + baseName(ap) + ")" : "";
+}
+
+function weaponRoot(path) {
+  const p = normPath(path);
+  for (const sep of ["/meshes/", "/animations/", "/ai/"]) {
+    const i = p.lastIndexOf(sep);
+    if (i >= 0) return p.slice(0, i + 1);
+  }
+  return p.slice(0, p.lastIndexOf("/") + 1);
+}
+
+function fillIncs() {
+  const w = $("#selWeapon").value, root = w ? weaponRoot(w) : "";
+  const all = ofExt("inc").sort((a, b) => (b.path.startsWith(root) - a.path.startsWith(root)) || (/animationsystem1p/.test(b.name) - /animationsystem1p/.test(a.name)));
+  fillSelect($("#selInc"), all, null, e => e.path.startsWith(root) && /animationsystem1p/.test(e.name));
+}
+
+function refreshSelectors(opts = {}) {
+  updateSavedTags();
+  fillSelect($("#selSke"), ofExt("ske"), loadPref(STORAGE_KEYS.skePath), e => /1p/.test(e.name));
+  fillSelect($("#selArms"), ofExt("skinnedmesh"), loadPref(STORAGE_KEYS.armsPath), e => /soldier/.test(e.name));
+  const importedCons = store.entries.filter(e => e.ext === "con" && e.imported && !/\/e_/.test(e.path));
+  const modelCandidates = [
+    ...importedCons,
+    ...store.entries.filter(e => ["bundledmesh", "staticmesh", "skinnedmesh"].includes(e.ext) && e.imported),
+  ];
+  const fallbackList = modelCandidates.length ? modelCandidates : [
+    ...ofExt("con").filter(e => !/\/e_/.test(e.path)),
+    ...ofExt("bundledmesh"),
+    ...ofExt("staticmesh"),
+    ...ofExt("skinnedmesh"),
+  ];
+  fillSelect($("#selWeapon"), fallbackList, opts.preferWeapon || "", e => e.ext === "con" || e.ext === "bundledmesh" || e.ext === "staticmesh");
+  fillIncs();
+  updateEditorButtonVisibility();
+  loadAll(false);
+}
+
+const gl = $("#gl").getContext("webgl", { antialias: true, alpha: false }) || $("#gl").getContext("experimental-webgl");
+const ov = $("#ov"), ox = ov.getContext("2d");
+let prog = null, U = {}, A = {};
+function initGL() {
+  if (!gl) { say("Este navegador no ofrece WebGL."); return; }
+  const mk = (t, s) => { const sh = gl.createShader(t); gl.shaderSource(sh, s); gl.compileShader(sh); if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(sh)); return sh; };
+  prog = gl.createProgram();
+  gl.attachShader(prog, mk(gl.VERTEX_SHADER, `attribute vec3 aPos;attribute vec3 aNrm;attribute vec2 aUv;uniform mat4 uVP;varying vec3 vN;varying vec3 vP;varying vec2 vUv;
+void main(){vN=aNrm;vP=aPos;vUv=aUv;gl_Position=uVP*vec4(aPos,1.0);}`));
+  gl.attachShader(prog, mk(gl.FRAGMENT_SHADER, `precision mediump float;varying vec3 vN;varying vec3 vP;varying vec2 vUv;
+uniform sampler2D uTex;uniform float uHasTex;uniform vec3 uColor;uniform vec3 uEye;uniform float uAT;uniform float uFlat;uniform float uGloss;uniform float uBlend;
+void main(){
+ if(uFlat>0.5){gl_FragColor=vec4(uColor,1.0);return;}
+ vec4 t=uHasTex>0.5?texture2D(uTex,vUv):vec4(uColor,1.0);
+ if(uAT>0.5&&t.a<0.4)discard;
+ vec3 n=normalize(vN);vec3 V=normalize(uEye-vP);if(dot(n,V)<0.0)n=-n;
+ vec3 L1=normalize(vec3(0.5,0.8,0.3));vec3 L2=normalize(vec3(-0.6,0.2,-0.4));
+ float d=0.32+0.58*max(dot(n,L1),0.0)+0.25*max(dot(n,L2),0.0);
+ vec3 H=normalize(L1+V);float s=pow(max(dot(n,H),0.0),24.0)*(uGloss>0.5&&uHasTex>0.5?0.16+0.5*t.a:0.16);
+ gl_FragColor=vec4(t.rgb*d+s,uBlend>0.5?t.a:1.0);}`));
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+  gl.useProgram(prog);
+  for (const n of ["uVP", "uTex", "uHasTex", "uColor", "uEye", "uAT", "uFlat", "uGloss", "uBlend"]) U[n] = gl.getUniformLocation(prog, n);
+  for (const n of ["aPos", "aNrm", "aUv"]) A[n] = gl.getAttribLocation(prog, n);
+  gl.enable(gl.DEPTH_TEST);
+}
+function makeTex(img) {
+  const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, img.w, img.h, 0, gl.RGBA, gl.UNSIGNED_BYTE, img.px);
+  const pot = x => (x & (x - 1)) === 0;
+  if (pot(img.w) && pot(img.h)) { gl.generateMipmap(gl.TEXTURE_2D); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT); }
+  else { gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); }
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  return t;
+}
+const texCache = new Map();
+async function texFor(mapPath) {
+  const e = findEntry(mapPath); if (!e) return null;
+  if (texCache.has(e.path)) return texCache.get(e.path);
+  let t = null;
+  try { t = makeTex(parseDDS(await e.get())); } catch {}
+  texCache.set(e.path, t); return t;
+}
+
+async function buildObject(mesh, geom, lod, kind) {
+  const gObj = mesh.geoms && mesh.geoms[geom];
+  const L = gObj && gObj.lods && gObj.lods[lod];
+  if (!L) throw new Error("La malla no tiene geom " + geom + " / lod " + lod);
+  const n = mesh.vnum, st = mesh.stride, dv = new DataView(mesh.vdata);
+  const at = u => mesh.attribs.find(a => a.flag !== 255 && a.usage === u);
+  const aUv = at(5), aN = at(3);
+  const src = new Float32Array(n * 3), nrm = new Float32Array(n * 3), uv = new Float32Array(n * 2);
+  for (let v = 0; v < n; v++) {
+    for (let k = 0; k < 3; k++) { src[v * 3 + k] = dv.getFloat32(v * st + k * 4, true); nrm[v * 3 + k] = aN ? dv.getFloat32(v * st + aN.offset + k * 4, true) : 0; }
+    if (aUv) { uv[v * 2] = dv.getFloat32(v * st + aUv.offset, true); uv[v * 2 + 1] = dv.getFloat32(v * st + aUv.offset + 4, true); }
+  }
+  const o = { kind, src, nrm, n, out: new Float32Array(n * 3), outN: new Float32Array(n * 3), groups: [], lod };
+  o.pos = gl.createBuffer(); o.nb = gl.createBuffer(); o.ub = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, o.ub); gl.bufferData(gl.ARRAY_BUFFER, uv, gl.STATIC_DRAW);
+  if (kind === "skin") {
+    o.w = new Float32Array(n); o.b1 = new Uint8Array(n); o.b2 = new Uint8Array(n); o.rig = new Int16Array(n).fill(-1);
+    const wa = at(1), ia = at(2);
+    L.mats.forEach((mt, mi) => { for (let v = mt.vstart; v < mt.vstart + mt.vnum; v++) {
+      o.rig[v] = mi; o.w[v] = wa ? dv.getFloat32(v * st + wa.offset, true) : 1;
+      o.b1[v] = ia ? dv.getUint8(v * st + ia.offset) : 0; o.b2[v] = ia ? dv.getUint8(v * st + ia.offset + 1) : 0;
+    } });
+    o.rigs = L.rigs;
+  } else {
+    const ia = at(2); o.part = new Uint8Array(n);
+    for (let v = 0; v < n; v++) o.part[v] = ia ? dv.getUint8(v * st + ia.offset) : 0;
+  }
+  for (const mt of L.mats) {
+    const idx = new Uint16Array(mt.inum); for (let i = 0; i < mt.inum; i++) idx[i] = mt.vstart + mesh.indices[mt.istart + i];
+    const wire = new Uint16Array(mt.inum * 2); for (let t = 0; t < mt.inum / 3; t++) { const a = idx[t * 3], b = idx[t * 3 + 1], c = idx[t * 3 + 2]; wire.set([a, b, b, c, c, a], t * 6); }
+    const ib = gl.createBuffer(), wb = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, wb); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, wire, gl.STATIC_DRAW);
+    const tex = mt.maps.length ? await texFor(mt.maps[0]) : null;
+    const g = { ib, wb, count: mt.inum, wcount: wire.length, tex, miss: !tex ? baseName(mt.maps[0] || "sin textura") : null, mt, slot: 0 };
+    Object.assign(g, matFlags(mt)); o.groups.push(g);
+  }
+  return o;
+}
+
+function sampleAnim(an, pos, out, wgt) {
+  const F = an.F, f0 = Math.min(Math.max(Math.floor(pos), 0), F - 1), f1 = Math.min(f0 + 1, F - 1), fr = Math.min(Math.max(pos - f0, 0), 1);
+  for (let i = 0; i < an.ids.length; i++) {
+    const b = an.ids[i]; if (b < 0 || b >= out.n) continue;
+    const a0 = (i * F + f0) * 4, a1 = (i * F + f1) * 4;
+    let dot = 0; for (let k = 0; k < 4; k++) dot += an.rot[a0 + k] * an.rot[a1 + k];
+    const sg = dot < 0 ? -1 : 1, first = out.W[b] === 0;
+    const q0 = out.Q[b * 4], q1 = out.Q[b * 4 + 1], q2 = out.Q[b * 4 + 2], q3 = out.Q[b * 4 + 3];
+    const ref = first ? 1 : Math.sign(q0 * an.rot[a0] + q1 * an.rot[a0 + 1] + q2 * an.rot[a0 + 2] + q3 * an.rot[a0 + 3]) || 1;
+    for (let k = 0; k < 4; k++) out.Q[b * 4 + k] += wgt * ref * (an.rot[a0 + k] * (1 - fr) + sg * an.rot[a1 + k] * fr);
+    for (let k = 0; k < 3; k++) out.P[b * 3 + k] += wgt * (an.pos[(i * F + f0) * 3 + k] * (1 - fr) + an.pos[(i * F + f1) * 3 + k] * fr);
+    out.W[b] += wgt;
+  }
+}
+function newAcc(n) { return { n, Q: new Float64Array(n * 4), P: new Float64Array(n * 3), W: new Float64Array(n) }; }
+function finish(acc, ske) {
+  for (let b = 0; b < acc.n; b++) {
+    if (acc.W[b] > 0) {
+      const l = Math.hypot(acc.Q[b * 4], acc.Q[b * 4 + 1], acc.Q[b * 4 + 2], acc.Q[b * 4 + 3]) || 1;
+      for (let k = 0; k < 4; k++) acc.Q[b * 4 + k] /= l;
+      for (let k = 0; k < 3; k++) acc.P[b * 3 + k] /= acc.W[b];
+    } else {
+      const n = ske.nodes[b]; for (let k = 0; k < 4; k++) acc.Q[b * 4 + k] = n.q[k]; for (let k = 0; k < 3; k++) acc.P[b * 3 + k] = n.p[k];
+    }
+  }
+  return acc;
+}
+function animLen(a) { return (a.meta && a.meta.length) ? a.meta.length : a.an.F / parseFloat($("#fps").value); }
+function animPos(a, t, looping) {
+  const L = animLen(a), F = a.an.F;
+  if (looping) return (((t % L) + L) % L / L) * F;
+  return Math.min(Math.max(t / L, 0), 1) * (F - 1);
+}
+async function getBaf(path) {
+  const e = findEntry(path); if (!e) return null;
+  if (S.bafCache.has(e.path)) return S.bafCache.get(e.path);
+  let an = null; try { an = parseBaf(await e.get()); } catch {}
+  S.bafCache.set(e.path, an); return an;
+}
+function curTimes() {
+  const c = S.cur; if (!c) return { total: 0, dur: 0 };
+  if (c.kind === "baf") return { total: animLen(c.item), dur: animLen(c.item) };
+  const dur = Math.max(...c.items.map(animLen), 0.01), total = c.b.looping ? dur : dur + c.b.fadeOut;
+  return { total, dur };
+}
+function computePose() {
+  if (!S.ske) return null;
+  if (!S.cur) return poseWorld(finish(newAcc(S.ske.nodes.length), S.ske));
+  const nb = S.ske.nodes.length, c = S.cur, t = S.t;
+  const top = newAcc(nb);
+  if (c.kind === "baf") sampleAnim(c.item.an, animPos(c.item, t, c.loop), top, 1);
+  else {
+    const ws = c.weights; c.items.forEach((a, i) => { if (ws[i] > 0) sampleAnim(a.an, animPos(a, t, c.b.looping), top, ws[i]); });
+    if (top.W.every(w => w === 0)) c.items.forEach(a => sampleAnim(a.an, animPos(a, t, c.b.looping), top, 1));
+  }
+  return poseWorld(finish(top, S.ske));
+}
+function poseWorld(acc) {
+  const nodes = S.ske.nodes, W = new Array(nodes.length);
+  for (let i = 0; i < nodes.length; i++) {
+    const L = M.fromQP(acc.Q.subarray(i * 4, i * 4 + 4), acc.P.subarray(i * 3, i * 3 + 3));
+    W[i] = nodes[i].parent < 0 ? L : M.mul(W[nodes[i].parent], L);
+  }
+  return W;
+}
+
+function deform(o, W) {
+  const s = o.src, nr = o.nrm, out = o.out, on = o.outN;
+  if (o.kind === "skin" && W && o.rigs) {
+    const sk = o.rigs.map(r => r.map(b => b.id >= 0 && b.id < W.length ? M.mul(W[b.id], b.mat) : b.mat));
+    for (let v = 0; v < o.n; v++) {
+      const ri = o.rig[v]; const i3 = v * 3;
+      if (ri < 0 || !sk[ri]) { out[i3] = s[i3]; out[i3 + 1] = s[i3 + 1]; out[i3 + 2] = -s[i3 + 2]; on[i3] = nr[i3]; on[i3 + 1] = nr[i3 + 1]; on[i3 + 2] = -nr[i3 + 2]; continue; }
+      const m1 = sk[ri][o.b1[v]], m2 = sk[ri][o.b2[v]], w = o.w[v], x = s[i3], y = s[i3 + 1], z = s[i3 + 2], nx = nr[i3], ny = nr[i3 + 1], nz = nr[i3 + 2];
+      if (!m1 || !m2) continue;
+      out[i3] = w * (m1[0] * x + m1[4] * y + m1[8] * z + m1[12]) + (1 - w) * (m2[0] * x + m2[4] * y + m2[8] * z + m2[12]);
+      out[i3 + 1] = w * (m1[1] * x + m1[5] * y + m1[9] * z + m1[13]) + (1 - w) * (m2[1] * x + m2[5] * y + m2[9] * z + m2[13]);
+      out[i3 + 2] = -(w * (m1[2] * x + m1[6] * y + m1[10] * z + m1[14]) + (1 - w) * (m2[2] * x + m2[6] * y + m2[10] * z + m2[14]));
+      on[i3] = w * (m1[0] * nx + m1[4] * ny + m1[8] * nz) + (1 - w) * (m2[0] * nx + m2[4] * ny + m2[8] * nz);
+      on[i3 + 1] = w * (m1[1] * nx + m1[5] * ny + m1[9] * nz) + (1 - w) * (m2[1] * nx + m2[5] * ny + m2[9] * nz);
+      on[i3 + 2] = -(w * (m1[2] * nx + m1[6] * ny + m1[10] * nz) + (1 - w) * (m2[2] * nx + m2[6] * ny + m2[10] * nz));
+    }
+  } else {
+    const pm = [];
+    const isVeh = !!(S.tweak && S.tweak.isPCO);
+    if (S.mode1P && !isVeh && W && S.ske) {
+      for (let p = 0; p < 64; p++) { const bi = S.ske.idx["mesh" + (p + 1)]; pm.push(bi != null ? W[bi] : M.ident()); }
+    }
+    const partMap = (S.tweak && S.tweak.partTransforms) ? S.tweak.partTransforms : null;
+    for (let v = 0; v < o.n; v++) {
+      const pIdx = o.part[v] || 0;
+      const animM = pm[pIdx] || pm[0] || M.ident();
+      const tplM = (partMap && partMap.get(pIdx)) || M.ident();
+      const m = M.mul(animM, tplM);
+      const i3 = v * 3, x = s[i3], y = s[i3 + 1], z = s[i3 + 2], nx = nr[i3], ny = nr[i3 + 1], nz = nr[i3 + 2];
+      out[i3] = m[0] * x + m[4] * y + m[8] * z + m[12]; out[i3 + 1] = m[1] * x + m[5] * y + m[9] * z + m[13]; out[i3 + 2] = -(m[2] * x + m[6] * y + m[10] * z + m[14]);
+      on[i3] = m[0] * nx + m[4] * ny + m[8] * nz; on[i3 + 1] = m[1] * nx + m[5] * ny + m[9] * nz; on[i3 + 2] = -(m[2] * nx + m[6] * ny + m[10] * nz);
+    }
+  }
+  gl.bindBuffer(gl.ARRAY_BUFFER, o.pos); gl.bufferData(gl.ARRAY_BUFFER, o.out, gl.DYNAMIC_DRAW);
+  gl.bindBuffer(gl.ARRAY_BUFFER, o.nb); gl.bufferData(gl.ARRAY_BUFFER, o.outN, gl.DYNAMIC_DRAW);
+}
+
+function drawObject(o, color) {
+  gl.bindBuffer(gl.ARRAY_BUFFER, o.pos); gl.enableVertexAttribArray(A.aPos); gl.vertexAttribPointer(A.aPos, 3, gl.FLOAT, false, 0, 0);
+  gl.bindBuffer(gl.ARRAY_BUFFER, o.nb); gl.enableVertexAttribArray(A.aNrm); gl.vertexAttribPointer(A.aNrm, 3, gl.FLOAT, false, 0, 0);
+  gl.bindBuffer(gl.ARRAY_BUFFER, o.ub); gl.enableVertexAttribArray(A.aUv); gl.vertexAttribPointer(A.aUv, 2, gl.FLOAT, false, 0, 0);
+  const ordered = o.groups.filter(g => !g.blend).concat(o.groups.filter(g => g.blend));
+  for (const g of ordered) {
+    if (g.hidden) continue;
+    if (S.show.wire) {
+      gl.uniform1f(U.uFlat, 1); gl.uniform3f(U.uColor, 0.85, 0.9, 1.0);
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, g.wb); gl.drawElements(gl.LINES, g.wcount, gl.UNSIGNED_SHORT, 0);
+    } else {
+      gl.uniform1f(U.uFlat, 0); gl.uniform1f(U.uAT, g.at); gl.uniform1f(U.uGloss, g.gloss ? 1 : 0); gl.uniform1f(U.uBlend, g.blend ? 1 : 0);
+      if (g.blend) { gl.enable(gl.BLEND); gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ZERO, gl.ONE); gl.depthMask(false); }
+      if (g.tex) { gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, g.tex); gl.uniform1i(U.uTex, 0); gl.uniform1f(U.uHasTex, 1); }
+      else { gl.uniform1f(U.uHasTex, 0); gl.uniform3f(U.uColor, color[0], color[1], color[2]); }
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, g.ib); gl.drawElements(gl.TRIANGLES, g.count, gl.UNSIGNED_SHORT, 0);
+      if (g.blend) { gl.disable(gl.BLEND); gl.depthMask(true); }
+    }
+  }
+}
+
+function camMatrices(W, aspect) {
+  const V = S.view, P = M.persp(V.fov * Math.PI / 180, aspect, 0.015, 160);
+  let view, eye;
+  const isVehicle = !!(S.tweak && S.tweak.isPCO);
+  if (S.mode1P && V.cam && isVehicle && S.tweak && S.tweak.camera && S.tweak.camera.pos) {
+    const cam = S.tweak.camera;
+    const cp = cam.pos;
+    eye = [cp[0], cp[1], -cp[2]];
+    const baseYaw = -(cam.rot?.[0] || 0) * Math.PI / 180;
+    const basePitch = (cam.rot?.[1] || 0) * Math.PI / 180;
+    const yaw = baseYaw + (V.vehYaw || 0);
+    const pitch = Math.max(-1.35, Math.min(1.35, basePitch + (V.vehPitch || 0)));
+    const cpCos = Math.cos(pitch);
+    const dir = [cpCos * Math.sin(yaw), Math.sin(pitch), -cpCos * Math.cos(yaw)];
+    const t = [eye[0] + dir[0] * 3.0, eye[1] + dir[1] * 3.0, eye[2] + dir[2] * 3.0];
+    view = M.lookAt(eye, t, [0, 1, 0]);
+  } else if (S.mode1P && V.cam && W && S.ske && S.ske.idx.camerabone != null) {
+    const c = W[S.ske.idx.camerabone]; view = M.mul(FLIPZ, M.mul(M.rigidInv(c), FLIPZ)); eye = [c[12], c[13], -c[14]];
+  } else {
+    const t = [V.target[0], V.target[1], -V.target[2]], cp = Math.cos(V.pitch);
+    eye = [t[0] + V.dist * cp * Math.sin(V.yaw), t[1] + V.dist * Math.sin(V.pitch), t[2] + V.dist * cp * Math.cos(V.yaw)];
+    view = M.lookAt(eye, t, [0, 1, 0]);
+  }
+  return { VP: M.mul(P, view), eye };
+}
+function resize() {
+  const st = $("#stage"), d = Math.min(window.devicePixelRatio || 1, 2), w = Math.max(1, Math.round(st.clientWidth * d)), h = Math.max(1, Math.round(st.clientHeight * d));
+  for (const c of [$("#gl"), ov]) if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+}
+function frame() {
+  requestAnimationFrame(frame);
+  if (!gl || !prog) return;
+  resize();
+  const isVeh = !!(S.tweak && S.tweak.isPCO);
+  const W = S.W = (S.mode1P && !isVeh && S.ske) ? computePose() : null, cv = $("#gl");
+  gl.viewport(0, 0, cv.width, cv.height); gl.clearColor(0.09, 0.1, 0.12, 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  ox.clearRect(0, 0, ov.width, ov.height);
+  if (!W && !S.weapObj && !S.armsObj) return;
+  const { VP, eye } = camMatrices(W, cv.width / cv.height);
+  gl.useProgram(prog); gl.uniformMatrix4fv(U.uVP, false, new Float32Array(VP)); gl.uniform3f(U.uEye, eye[0], eye[1], eye[2]);
+  if (S.mode1P && S.armsObj && S.show.arms) { deform(S.armsObj, W); drawObject(S.armsObj, [0.78, 0.6, 0.5]); }
+  if (S.weapObj && S.show.weapon) { deform(S.weapObj, W); drawObject(S.weapObj, [0.42, 0.44, 0.48]); }
+  drawOverlay(VP);
+  tick();
+}
+
+function drawOverlay(VP) {
+  if (!S.show.mark || !S.tweak) return;
+  const project = pt => {
+    const x = pt[0], y = pt[1], z = -pt[2];
+    const cx = VP[0] * x + VP[4] * y + VP[8] * z + VP[12];
+    const cy = VP[1] * x + VP[5] * y + VP[9] * z + VP[13];
+    const cw = VP[3] * x + VP[7] * y + VP[11] * z + VP[15];
+    if (cw <= 0.001) return null;
+    return [(cx / cw * 0.5 + 0.5) * ov.width, (-cy / cw * 0.5 + 0.5) * ov.height];
+  };
+  ox.font = "11px monospace";
+  for (const mk of (S.tweak.markers || [])) {
+    const p2 = project(mk.pos);
+    if (!p2) continue;
+    ox.fillStyle = "#ef8a4c";
+    ox.beginPath(); ox.arc(p2[0], p2[1], 3.5, 0, Math.PI * 2); ox.fill();
+    ox.fillText(mk.name, p2[0] + 6, p2[1] + 3);
+  }
+  if (S.tweak.camera && S.tweak.camera.pos) {
+    const c2 = project(S.tweak.camera.pos);
+    if (c2) {
+      ox.fillStyle = "#6fb67b";
+      ox.beginPath(); ox.arc(c2[0], c2[1], 5, 0, Math.PI * 2); ox.fill();
+      ox.fillText("1P: " + S.tweak.camera.name, c2[0] + 7, c2[1] + 4);
+    }
+  }
+}
+
+let lastTs = 0;
+function tick() {
+  const now = performance.now(), dt = lastTs ? Math.min((now - lastTs) / 1000, 0.1) : 0; lastTs = now;
+  const c = S.cur; if (!c || !S.mode1P) { updateReadout(); return; }
+  if (S.playing) {
+    const { total } = curTimes(), spd = parseFloat($("#speed").value);
+    S.t += dt * spd;
+    const loops = c.kind === "bundle" ? c.b.looping : c.loop;
+    if (S.t >= total) {
+      if (loops || $("#loopPlay").checked) S.t = total > 0 ? S.t % total : 0;
+      else { S.t = total; setPlaying(false); }
+    }
+  }
+  updateReadout();
+}
+function setPlaying(v) {
+  S.playing = v;
+  $("#playIcon").innerHTML = v ? '<path d="M3 1.5h3v11H3zM8 1.5h3v11H8z" fill="currentColor"/>' : '<path d="M3 1.5v11l9-5.5z" fill="currentColor"/>';
+}
+function updateReadout() {
+  const c = S.cur; if (!c) return;
+  const { total } = curTimes();
+  const a = c.kind === "baf" ? c.item : c.items[0];
+  let fr = "";
+  if (a) { const looping = c.kind === "bundle" ? c.b.looping : c.loop; fr = " · fotograma " + animPos(a, S.t, looping).toFixed(1) + " / " + a.an.F; }
+  $("#readout").textContent = S.t.toFixed(2) + " s / " + total.toFixed(2) + " s" + fr;
+  if (document.activeElement !== $("#scrub")) $("#scrub").value = total > 0 ? Math.round(S.t / total * 1000) : 0;
+}
+
+async function resolveBundle(b) {
+  if (b.items) return b;
+  const items = [];
+  for (const p of b.anims) {
+    const an = await getBaf(p), meta = S.incAnims[baseName(p)] || null;
+    if (!an) { b.missing = baseName(p); b.items = null; return b; }
+    items.push({ an, meta, path: p });
+  }
+  b.items = items; b.weights = items.map((_, i) => i === 0 ? 1 : 0); b.missing = null; return b;
+}
+
+function renderList() {
+  const list = $("#list"); list.innerHTML = "";
+  if (!S.mode1P) {
+    const infoText = S.activeMeshData
+      ? "Geometrías disponibles: " + S.activeMeshData.geoms.length + (S.tweak?.camera ? " · Cámara 1P: " + S.tweak.camera.name : "") + ". Cambiá Geom / LOD o activá \"Modo 1P\"."
+      : "Visor 3D activo. Elegí un modelo o activá \"Modo 1P\".";
+    list.appendChild(el("div", "empty-list", infoText));
+    return;
+  }
+  if (S.tab === "bundles") {
+    if (!S.bundles.length) {
+      const msg = S.tweak?.isPCO
+        ? (S.tweak.camera ? "Vehículo (PCO) listo. Cámara 1P en " + S.tweak.camera.name + " (" + S.tweak.camera.pos.map(n => n.toFixed(4)).join(" / ") + ")." : "Vehículo (PCO) listo. Sin .inc de animaciones 1P.")
+        : (S.inc ? "Este .inc no define bundles." : "No se encontró .inc ni bundles para este .con.");
+      list.appendChild(el("div", "empty-list", msg));
+      return;
+    }
+    for (const b of S.bundles) {
+      const it = el("button", "item"); it.type = "button"; it.setAttribute("role", "option");
+      if (S.cur && S.cur.b === b) it.setAttribute("aria-current", "true");
+      it.appendChild(el("span", "nm", b.name));
+      if (b.missing) { const t = el("span", "tag warn", "falta .baf"); t.title = b.missing; it.appendChild(t); it.disabled = true; }
+      else if (b.items) it.appendChild(el("span", "meta", Math.max(...b.items.map(animLen)).toFixed(2) + " s"));
+      it.addEventListener("click", () => playBundle(b));
+      list.appendChild(it);
+    }
+  } else {
+    const bafs = ofExt("baf").sort((a, b) => a.path < b.path ? -1 : 1);
+    if (!bafs.length) { list.appendChild(el("div", "empty-list", "No hay .baf cargados.")); return; }
+    for (const e of bafs) {
+      const it = el("button", "item"); it.type = "button"; it.setAttribute("role", "option");
+      if (S.cur && S.cur.path === e.path) it.setAttribute("aria-current", "true");
+      it.appendChild(el("span", "nm", e.name));
+      it.addEventListener("click", () => playBaf(e));
+      list.appendChild(it);
+    }
+  }
+}
+
+function setBlend() {
+  const box = $("#blend"); box.innerHTML = "";
+  const c = S.cur; if (!c || c.kind !== "bundle" || c.items.length < 2) { box.hidden = true; return; }
+  box.hidden = false;
+  c.items.forEach((a, i) => {
+    const row = el("div", "b"), r = el("input"), v = el("span", null, c.weights[i].toFixed(1));
+    r.type = "range"; r.min = 0; r.max = 1; r.step = 0.05; r.value = c.weights[i];
+    r.addEventListener("input", () => { c.weights[i] = parseFloat(r.value); v.textContent = c.weights[i].toFixed(2).replace(/0$/, ""); });
+    row.append(el("span", null, baseName(a.path)), r, v); box.appendChild(row);
+  });
+}
+function setMarks() {
+  const m = $("#marks"); m.innerHTML = ""; const z = $("#zone"); z.hidden = true;
+  const c = S.cur; if (!c || c.kind !== "bundle") return;
+  const { total, dur } = curTimes();
+  for (const e of c.b.events) { const k = el("div", "mark", e.name); k.style.left = (total ? Math.min(e.t / total, 1) * 100 : 0) + "%"; m.appendChild(k); }
+  if (!c.b.looping && c.b.fadeOut > 0 && total > dur) { z.hidden = false; z.style.left = (dur / total * 100) + "%"; z.style.width = ((total - dur) / total * 100) + "%"; }
+}
+async function playBundle(b) {
+  await resolveBundle(b);
+  if (!b.items) { say("Falta " + b.missing + " en los archivos cargados."); renderList(); return; }
+  S.cur = { kind: "bundle", b, items: b.items, weights: b.weights, path: null }; S.t = 0; setPlaying(true);
+  info(); setMarks(); setBlend(); renderList();
+}
+async function playBaf(e) {
+  const an = await getBaf(e.path); if (!an) { say("No pude leer " + e.name); return; }
+  const meta = S.incAnims[e.name] || null;
+  S.cur = { kind: "baf", item: { an, meta, path: e.path }, loop: meta ? meta.looping : true, path: e.path }; S.t = 0; setPlaying(true);
+  info(); setMarks(); setBlend(); renderList();
+}
+function info() {
+  const c = S.cur; if (!c) return;
+  if (c.kind === "bundle") {
+    $("#curName").textContent = c.b.name;
+    $("#curInfo").textContent = (c.b.looping ? "en bucle" : "una vez") + " · entrada " + c.b.fadeIn + " s · salida " + c.b.fadeOut + " s";
+  } else { $("#curName").textContent = baseName(c.path); $("#curInfo").textContent = c.loop ? "en bucle" : "una vez"; }
+}
+
+async function collectRelatedScripts(conEntry) {
+  const mainText = await readEntrySafe(conEntry);
+  const texts = [mainText];
+  const stem = conEntry.name.replace(/\.con$/i, "");
+  const folder = conEntry.path.includes("/") ? conEntry.path.slice(0, conEntry.path.lastIndexOf("/") + 1) : "";
+  const seen = new Set([conEntry.path]);
+
+  const addScript = async e => {
+    if (!e || seen.has(e.path)) return;
+    seen.add(e.path);
+    try { texts.push(await readEntrySafe(e)); } catch {}
+  };
+
+  for (const raw of mainText.split(/\r?\n/)) {
+    const m = raw.trim().match(/^include\s+(.+)$/i);
+    if (m) {
+      const incTarget = m[1].trim().replace(/^["']|["']$/g, "");
+      const found = (folder ? findEntry(folder + incTarget) : null) || findEntry(incTarget);
+      await addScript(found);
+    }
+  }
+
+  const exactTweaks = store.entries.filter(e => e.name === stem + ".tweak")
+    .sort((a, b) => (b.path.startsWith(folder) ? 1 : 0) - (a.path.startsWith(folder) ? 1 : 0));
+  for (const e of exactTweaks) await addScript(e);
+
+  return texts;
+}
+
+async function loadAll(refit = false) {
+  if (S.busy) { S.pendingLoad = S.pendingLoad || refit; return; }
+  S.busy = true;
+  try {
+    const sp = $("#selSke").value, ap = $("#selArms").value, wp = $("#selWeapon").value;
+    if (sp) savePref(STORAGE_KEYS.skePath, sp);
+    if (ap) savePref(STORAGE_KEYS.armsPath, ap);
+    if (wp && wp.endsWith(".con")) savePref(STORAGE_KEYS.conPath, wp);
+    updateSavedTags();
+
+    const get = p => store.entries.find(e => e.path === p);
+    const eS = sp ? get(sp) : null;
+    const eA = ap ? get(ap) : null;
+    const eWsel = wp ? get(wp) : null;
+
+    let eW = null, parsedCon = null;
+    if (eWsel && eWsel.ext === "con") {
+      const scripts = await collectRelatedScripts(eWsel);
+      parsedCon = parseConScripts(scripts);
+      const meshOnly = e => (e && ["bundledmesh", "staticmesh", "skinnedmesh"].includes(e.ext)) ? e : null;
+      if (parsedCon.geometry) eW = meshOnly(findEntry(parsedCon.geometry));
+      if (!eW) eW = meshOnly(findEntry(eWsel.name.replace(/\.con$/i, ".bundledmesh")));
+      if (!eW) eW = meshOnly(findEntry(eWsel.name.replace(/\.con$/i, ".staticmesh")));
+      if (!eW) eW = meshOnly(findEntry(eWsel.name.replace(/\.con$/i, ".skinnedmesh")));
+      if (!eW && ofExt("bundledmesh").length) eW = ofExt("bundledmesh")[0];
+      if (!eW && ofExt("staticmesh").length) eW = ofExt("staticmesh")[0];
+      if (S.mode1P && parsedCon.animSystem1P) {
+        const incMatch = findEntry(parsedCon.animSystem1P);
+        if (incMatch) $("#selInc").value = incMatch.path;
+      }
+    } else if (eWsel && ["bundledmesh", "staticmesh", "skinnedmesh"].includes(eWsel.ext)) {
+      eW = eWsel;
+    }
+
+    S.tweak = parsedCon || null;
+
+    const isVeh = !!(parsedCon && parsedCon.isPCO);
+    $("#onePControls").style.display = (S.mode1P && !isVeh) ? "flex" : "none";
+    $("#incWrap").style.display = (S.mode1P && !isVeh) ? "block" : "none";
+    if (isVeh) {
+      S.cur = null;
+      S.bundles = [];
+      S.W = null;
+      if (S.mode1P) {
+        S.show.arms = false;
+        $("#vArms").setAttribute("aria-pressed", "false");
+      }
+    }
+
+    const eI = (S.mode1P && !isVeh && $("#selInc").value) ? get($("#selInc").value) : null;
+    $("#hero").hidden = !!(eW || (!isVeh && (eA || eS)));
+
+    if (S.mode1P && !isVeh && eS && S._sp !== eS.path) { S._sp = eS.path; S.ske = parseSke(await eS.get()); }
+    if (S.mode1P && !isVeh && eA && S._ap !== eA.path) { S._ap = eA.path; S.armsObj = await buildObject(parseMesh(await eA.get(), "skinnedmesh"), 0, 0, "skin"); }
+
+    const meshKey = eW ? (eW.path + "#g" + S.geom + "#l" + S.lod + "#" + (eWsel?.path || "")) : "";
+    if (eW && S._wp !== meshKey) {
+      const fileChanged = S.weapon !== eW;
+      S._wp = meshKey;
+      S.weapon = eW;
+      let parsedMesh = S.meshCache.get(eW);
+      if (!parsedMesh) { parsedMesh = parseMesh(await eW.get(), eW.ext); S.meshCache.set(eW, parsedMesh); }
+      S.activeMeshData = parsedMesh;
+      if (fileChanged) {
+        populateGeomLod(parsedMesh);
+      }
+      const safeGeom = Math.min(S.geom, Math.max(0, parsedMesh.geoms.length - 1));
+      const safeLod = Math.min(S.lod, Math.max(0, (parsedMesh.geoms[safeGeom]?.lods.length || 1) - 1));
+      S.geom = safeGeom;
+      S.lod = safeLod;
+      $("#selGeom").value = String(safeGeom);
+      $("#selLod").value = String(safeLod);
+
+      const objKind = eW.ext === "skinnedmesh" ? "skin" : "bundle";
+      S.weapObj = await buildObject(parsedMesh, safeGeom, safeLod, objKind);
+      if (S.weapObj) deform(S.weapObj, (S.mode1P && !isVeh && S.ske) ? computePose() : null);
+      fillFacts(); updateEditorButtonVisibility();
+      if (fileChanged || refit) fitCameraToObject(S.weapObj);
+    } else if (!eW && eWsel && eWsel.ext === "con") {
+      S._wp = ""; S.weapObj = null; S.weapon = null; S.activeMeshData = null;
+      fillFacts();
+    } else {
+      if (S.weapObj) deform(S.weapObj, (S.mode1P && !isVeh && S.ske) ? computePose() : null);
+      fillFacts(); updateEditorButtonVisibility();
+    }
+
+    if (S.mode1P && !isVeh && eI && S._ip !== eI.path) {
+      S._ip = eI.path; S.inc = eI; S.bafCache.clear();
+      const p = parseInc(await readEntrySafe(eI)); S.bundles = p.bundles; S.incAnims = p.anims;
+      for (const b of S.bundles) { try { await resolveBundle(b); } catch {} }
+      const base = $("#base"); base.innerHTML = "";
+      const none = el("option", null, "ninguna"); none.value = ""; base.appendChild(none);
+      for (const b of S.bundles.filter(b => b.items && b.looping)) { const o = el("option", null, b.name); o.value = b.name; base.appendChild(o); }
+      const first = S.bundles.find(b => b.name === "still" && b.items) || S.bundles.find(b => b.items);
+      S.cur = null; if (first) await playBundle(first);
+    }
+
+    renderList();
+
+    const issues = [];
+    if (eWsel && eWsel.ext === "con" && !eW) issues.push("No se encontró malla para " + eWsel.name);
+    if (S.mode1P && !parsedCon?.isPCO && eWsel && eWsel.ext === "con" && !eI) issues.push("No se encontró .inc de animaciones 1P");
+    if (S.mode1P && !parsedCon?.isPCO && !eS) issues.push("Sin .ske seleccionado para Modo 1P");
+    say(issues.join(" · "));
+  } catch (err) {
+    console.error(err);
+    say("Error al cargar modelo: " + err.message);
+  } finally {
+    S.busy = false;
+    if (S.pendingLoad) {
+      const nextRefit = S.pendingLoad;
+      S.pendingLoad = false;
+      loadAll(nextRefit);
+    }
+  }
+}
+
+function fillFacts() {
+  const d = $("#facts"); d.innerHTML = "";
+  const rows = [];
+  if (S.tweak) {
+    if (S.tweak.isPCO) rows.push(["tipo", "PlayerControlObject (Vehículo)"]);
+    if (S.tweak.camera) rows.push(["cámara 1P", S.tweak.camera.name + " @ " + S.tweak.camera.pos.map(n => n.toFixed(5)).join(" / ")]);
+    if (S.tweak.partTransforms && S.tweak.partTransforms.size > 1) {
+      rows.push(["geometryParts", [...S.tweak.partTransforms.keys()].join(", ")]);
+    }
+    for (const [k, v] of S.tweak.facts) rows.push([k, v]);
+  }
+  if (!rows.length) { $("#tweakBox").hidden = true; return; }
+  for (const [k, v] of rows) { d.appendChild(el("dt", null, k)); d.appendChild(el("dd", null, v)); }
+  $("#tweakBox").hidden = false;
+}
+
+function bindUI() {
+  const pick = (inp, opts = {}) => inp.addEventListener("change", async () => {
+    const items = [...inp.files].map(f => ({ file: f, path: f.webkitRelativePath || f.name }));
+    inp.value = "";
+    const added = await ingest(items, opts);
+    if (opts.focusCon && added.length) {
+      const conEntry = added.find(e => e.ext === "con");
+      if (conEntry) {
+        savePref(STORAGE_KEYS.conPath, conEntry.path);
+        $("#selWeapon").value = conEntry.path;
+        fillIncs();
+        S._wp = ""; S._ip = "";
+        await loadAll(true);
+      }
+    }
+  });
+  pick($("#inCon"), { focusCon: true });
+  pick($("#inFolder"));
+  pick($("#inFiles"));
+
+  $("#btnCon").onclick = () => $("#inCon").click();
+  $("#btnFiles").onclick = () => $("#inFiles").click();
+  $("#btnFolder").onclick = () => $("#inFolder").click();
+  $("#btnToggle1P").onclick = () => setMode1P(!S.mode1P);
+
+  $("#selGeom").addEventListener("change", () => {
+    S.geom = parseInt($("#selGeom").value, 10) || 0;
+    populateGeomLod(S.activeMeshData);
+    S._wp = "";
+    loadAll(false);
+  });
+  $("#selLod").addEventListener("change", () => {
+    S.lod = parseInt($("#selLod").value, 10) || 0;
+    S._wp = "";
+    loadAll(false);
+  });
+
+  const dz = $("#drop"), body = document.body;
+  ["dragenter", "dragover"].forEach(ev => body.addEventListener(ev, e => { e.preventDefault(); dz.classList.add("over"); }));
+  ["dragleave", "drop"].forEach(ev => body.addEventListener(ev, e => { if (ev === "dragleave" && e.relatedTarget) return; dz.classList.remove("over"); }));
+  body.addEventListener("drop", async e => {
+    e.preventDefault(); const out = [];
+    const its = [...(e.dataTransfer.items || [])];
+    if (its.length && its[0].webkitGetAsEntry) { const ents = its.map(i => i.webkitGetAsEntry()).filter(Boolean); for (const en of ents) await walkEntry(en, "", out); }
+    else for (const f of e.dataTransfer.files) out.push({ file: f, path: f.name });
+    const added = await ingest(out);
+    const pickModel = added.find(x => ["con", "bundledmesh", "staticmesh", "skinnedmesh"].includes(x.ext));
+    if (pickModel) { $("#selWeapon").value = pickModel.path; fillIncs(); S._wp = ""; S._ip = ""; await loadAll(true); }
+  });
+
+  $("#selSke").addEventListener("change", () => { if ($("#selSke").value) savePref(STORAGE_KEYS.skePath, $("#selSke").value); S._sp = ""; loadAll(false); });
+  $("#selArms").addEventListener("change", () => { if ($("#selArms").value) savePref(STORAGE_KEYS.armsPath, $("#selArms").value); S._ap = ""; loadAll(false); });
+  $("#selWeapon").addEventListener("change", () => { if ($("#selWeapon").value.endsWith(".con")) savePref(STORAGE_KEYS.conPath, $("#selWeapon").value); fillIncs(); S._wp = ""; S._ip = ""; loadAll(true); });
+  $("#selInc").addEventListener("change", () => { S._ip = ""; loadAll(false); });
+  $("#tabBundles").onclick = () => setTab("bundles"); $("#tabBafs").onclick = () => setTab("bafs");
+  $("#play").onclick = () => { if (!S.cur) return; if (!S.playing) { const { total } = curTimes(); if (S.t >= total) S.t = 0; } setPlaying(!S.playing); };
+  const step = d => { if (!S.cur) return; setPlaying(false); const a = S.cur.kind === "baf" ? S.cur.item : S.cur.items[0]; S.t = Math.max(0, Math.min(curTimes().total, S.t + d * animLen(a) / a.an.F)); };
+  $("#stepB").onclick = () => step(-1); $("#stepF").onclick = () => step(1);
+  $("#scrub").addEventListener("input", e => { if (!S.cur) return; setPlaying(false); S.t = parseFloat(e.target.value) / 1000 * curTimes().total; });
+  const tg = (id, fn) => $("#" + id).addEventListener("click", () => { const b = $("#" + id); const v = b.getAttribute("aria-pressed") !== "true"; b.setAttribute("aria-pressed", v); fn(v); });
+  tg("vCam", v => S.view.cam = v); tg("vArms", v => S.show.arms = v); tg("vWeapon", v => S.show.weapon = v);
+  tg("vSkel", v => S.show.skel = v); tg("vWire", v => S.show.wire = v); tg("vMark", v => S.show.mark = v);
+  $("#vReset").onclick = () => fitCameraToObject(S.weapObj || S.armsObj);
+  $("#fov").addEventListener("input", e => { S.view.fov = parseFloat(e.target.value); $("#fovv").textContent = e.target.value; });
+  $("#fps").addEventListener("change", () => { setMarks(); renderList(); });
+
+  const cv = $("#gl"), ptrs = new Map(); let lastD = 0;
+  cv.addEventListener("pointerdown", e => { cv.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, [e.clientX, e.clientY, e.button, e.shiftKey]); lastD = 0; cv.style.cursor = "grabbing"; });
+  cv.addEventListener("pointerup", e => { ptrs.delete(e.pointerId); cv.style.cursor = "grab"; });
+  cv.addEventListener("pointercancel", e => ptrs.delete(e.pointerId));
+  cv.addEventListener("pointermove", e => {
+    const p = ptrs.get(e.pointerId); if (!p) return;
+    const dx = e.clientX - p[0], dy = e.clientY - p[1]; const V = S.view;
+    if (ptrs.size === 2) {
+      const [a, b] = [...ptrs.values()]; const d = Math.hypot(a[0] - b[0], a[1] - b[1]); if (lastD) V.dist = Math.min(45, Math.max(0.2, V.dist * lastD / d)); lastD = d;
+    } else if (S.mode1P && V.cam && S.tweak && S.tweak.isPCO) {
+      V.vehYaw = (V.vehYaw || 0) + dx * 0.006;
+      V.vehPitch = Math.max(-1.3, Math.min(1.3, (V.vehPitch || 0) - dy * 0.006));
+    } else if (!(S.mode1P && V.cam)) {
+      if (p[2] === 2 || p[3]) { const s = V.dist * 0.0012; const cy = Math.cos(V.yaw), sy = Math.sin(V.yaw); V.target[0] -= dx * s * cy; V.target[2] += dx * s * sy; V.target[1] += dy * s; }
+      else { V.yaw -= dx * 0.008; V.pitch = Math.max(-1.4, Math.min(1.4, V.pitch + dy * 0.008)); }
+    }
+    p[0] = e.clientX; p[1] = e.clientY;
+  });
+  cv.addEventListener("contextmenu", e => e.preventDefault());
+  cv.addEventListener("wheel", e => { e.preventDefault(); const V = S.view; if (S.mode1P && V.cam) { V.fov = Math.min(100, Math.max(30, V.fov + e.deltaY * 0.02)); $("#fov").value = V.fov; $("#fovv").textContent = Math.round(V.fov); } else V.dist = Math.min(45, Math.max(0.2, V.dist * Math.exp(e.deltaY * 0.001))); }, { passive: false });
+  cv.addEventListener("dblclick", () => fitCameraToObject(S.weapObj || S.armsObj));
+}
+function setTab(t) { S.tab = t; $("#tabBundles").setAttribute("aria-selected", t === "bundles"); $("#tabBafs").setAttribute("aria-selected", t === "bafs"); renderList(); }
+
+const TAURI = (window.__TAURI__ && window.__TAURI__.core) ? window.__TAURI__.core.invoke : null;
+let bridgeListeners = false;
+async function applyManifest(data) {
+  if (!data || !data.files || !data.files.length) { say("No se encontraron archivos para ese destino."); return; }
+  const targetNorm = normPath(data.target || "");
+  const targetDir = targetNorm.includes("/") ? targetNorm.slice(0, targetNorm.lastIndexOf("/") + 1) : "";
+  for (const f of data.files) {
+    const fp = normPath(f.path);
+    const entry = addEntry(f.path, 0, async () => {
+      if (TAURI) return await TAURI("read_file", { path: f.abs });
+      const r = await fetch("/api/file?abs=" + encodeURIComponent(f.abs));
+      if (!r.ok) throw new Error("No se pudo leer " + f.path);
+      return r.arrayBuffer();
+    });
+    entry.absPath = f.abs;
+    if (fp === targetNorm || (targetDir && fp.startsWith(targetDir) && ["con", "tweak", "bundledmesh", "staticmesh", "skinnedmesh", "inc", "baf", "dds"].includes(entry.ext))) entry.imported = true;
+  }
+  $("#count").textContent = store.entries.length + " archivos leídos de disco";
+  refreshSelectors({ preferWeapon: data.target });
+  if (data.ske) $("#selSke").value = data.ske;
+  if (data.arms) $("#selArms").value = data.arms;
+  if (data.target) $("#selWeapon").value = data.target;
+  fillIncs();
+  updateEditorButtonVisibility();
+  S._sp = ""; S._ap = ""; S._wp = ""; S._ip = "";
+  await loadAll(true);
+  if (TAURI) for (const [selId, key] of [["selSke", "ske"], ["selArms", "arms"]]) { // recordar lo último usado en bf2_visor.ini
+    const ent = store.entries.find(e => e.path === $("#" + selId).value);
+    if (ent && ent.absPath) await TAURI("save_defaults", { key, path: ent.absPath }).catch(() => {});
+  }
+  if (bridgeListeners) return; bridgeListeners = true;
+  for (const [selId, key] of [["selSke", "ske"], ["selArms", "arms"]]) {
+    $("#" + selId).addEventListener("change", () => {
+      const ent = store.entries.find(e => e.path === $("#" + selId).value);
+      if (!ent || !ent.absPath) return;
+      if (TAURI) TAURI("save_defaults", { key, path: ent.absPath }).catch(() => {});
+      else fetch("/api/save-defaults", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ [key]: ent.absPath }) }).catch(() => {});
+    });
+  }
+}
+async function connectBridge() {
+  try {
+    if (TAURI) {
+      $("#btnNative").hidden = false;
+      $("#btnNative").addEventListener("click", async () => {
+        try {
+          const f = await window.__TAURI__.dialog.open({ multiple: false, filters: [{ name: "Archivos BF2", extensions: ["con", "tweak", "bundledmesh", "staticmesh", "skinnedmesh"] }] });
+          if (!f) return;
+          await applyManifest(await TAURI("get_manifest", { target: typeof f === "string" ? f : f.path }));
+        } catch (e) { say("No se pudo abrir: " + e); }
+      });
+      await applyManifest(await TAURI("get_manifest", { target: null }));
+      return;
+    }
+    if (!location.protocol.startsWith("http")) return;
+    const res = await fetch("/api/manifest"); if (!res.ok) return;
+    setInterval(() => { fetch("/api/ping", { method: "POST" }).catch(() => {}); }, 1500);
+    window.addEventListener("pagehide", () => { try { navigator.sendBeacon("/api/close"); } catch {} });
+    await applyManifest(await res.json());
+  } catch (e) { console.warn("Puente local no disponible:", e); }
+}
+async function saveToDisk(absPath, bytes) {
+  await TAURI("write_file", { path: absPath, data: Array.from(bytes) });
+}
+
+try { initGL(); } catch (e) { say("No se pudo iniciar WebGL: " + e.message); }
+bindUI();
+refreshSelectors();
+requestAnimationFrame(frame);
+connectBridge();
+
+/* ================= EDITOR DE TEXTO EN VIVO (.con / .tweak) ================= */
+
+function bufferToText(bufOrView) {
+  if (!bufOrView) return "";
+  if (typeof bufOrView === "string") return bufOrView;
+  if (bufOrView instanceof ArrayBuffer) {
+    return new TextDecoder("utf-8", { fatal: false }).decode(new Uint8Array(bufOrView));
+  }
+  if (ArrayBuffer.isView(bufOrView)) {
+    return new TextDecoder("utf-8", { fatal: false }).decode(
+      new Uint8Array(bufOrView.buffer, bufOrView.byteOffset, bufOrView.byteLength)
+    );
+  }
+  return String(bufOrView);
+}
+function textToArrayBuffer(txt) {
+  const u8 = new TextEncoder().encode(String(txt ?? ""));
+  const ab = new ArrayBuffer(u8.byteLength);
+  new Uint8Array(ab).set(u8);
+  return ab;
+}
+
+let activeConEntry = null;
+let activeTweakEntry = null;
+let edTab = "con";
+
+const BF2_KEYWORDS = new Set([
+  "ObjectTemplate.create", "ObjectTemplate.activeSafe", "ObjectTemplate.geometry",
+  "ObjectTemplate.geometryPart", "ObjectTemplate.animationSystem1P",
+  "ObjectTemplate.addTemplate", "ObjectTemplate.setPosition", "ObjectTemplate.setRotation",
+  "ObjectTemplate.setPivotPosition", "ObjectTemplate.hasRelativeOffset",
+  "ObjectTemplate.relativePositionOffset", "ObjectTemplate.itemIndex",
+  "ObjectTemplate.delayToUse", "ObjectTemplate.saveInSeparateFile",
+  "ObjectTemplate.networkableInfo", "ObjectTemplate.isNotSaveable",
+  "ObjectTemplate.creator", "ObjectTemplate.loadSoundScript", "include", "rem"
+]);
+
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function highlightBF2Script(text) {
+  const rawText = String(text ?? "");
+  const lines = rawText.split(/\r?\n/);
+  return lines.map(line => {
+    const trimmed = line.trimStart();
+    if (/^rem\b/i.test(trimmed) || trimmed.startsWith("//")) {
+      return `<span style="color:#7f8c9b;font-style:italic;">${escapeHtml(line)}</span>`;
+    }
+    const parts = trimmed.split(/(\s+)/);
+    const firstTok = parts[0] || "";
+    const leadingLen = line.length - trimmed.length;
+    let prefixHtml = escapeHtml(line.slice(0, leadingLen));
+
+    if (BF2_KEYWORDS.has(firstTok) || /^ObjectTemplate\.[A-Za-z0-9_.]+/.test(firstTok) || /^include$/i.test(firstTok)) {
+      prefixHtml += `<span style="color:#ef8a4c;font-weight:500;">${escapeHtml(firstTok)}</span>`;
+    } else {
+      prefixHtml += `<span style="color:#e6e7e2;">${escapeHtml(firstTok)}</span>`;
+    }
+
+    const restRaw = parts.slice(1).join("");
+    const coloredRest = escapeHtml(restRaw)
+      .replace(/(&quot;[^&]*&quot;|"[^"]*")/g, `<span style="color:#d8b968;">$1</span>`)
+      .replace(/([A-Za-z0-9_.-]+\/(?:[A-Za-z0-9_.-]+\/)*[A-Za-z0-9_.-]+)/g, `<span style="color:#7cc6fe;">$1</span>`)
+      .replace(/(?<![A-Za-z0-9_./-])(-?\d+(?:\.\d+)?(?:\/-?\d+(?:\.\d+)?)*)(?![A-Za-z0-9_./-])/g, `<span style="color:#8ce09a;">$1</span>`);
+
+    return prefixHtml + coloredRest;
+  }).join("\n");
+}
+
+function syncHighlightScroll() {
+  const ta = $("#edArea");
+  const pre = $("#edHighlight");
+  if (!ta || !pre) return;
+  pre.scrollTop = ta.scrollTop;
+  pre.scrollLeft = ta.scrollLeft;
+}
+
+function updateHighlight() {
+  const ta = $("#edArea");
+  const pre = $("#edHighlight");
+  if (!ta || !pre) return;
+  const val = ta.value;
+  pre.innerHTML = highlightBF2Script(val) + (val.endsWith("\n") ? " " : "");
+  syncHighlightScroll();
+}
+
+function updateEditorButtonVisibility() {
+  const wp = $("#selWeapon").value || "";
+  const hasAny = !!wp || !!(S.weapObj || S.tweak);
+  $("#btnEditScript").hidden = !hasAny;
+  $("#btnMat").hidden = !S.activeMeshData;
+}
+
+async function readEntrySafe(ent) {
+  if (!ent) return "";
+  if (typeof ent.textCache === "string") return ent.textCache;
+  if (ent.cache) {
+    if (typeof ent.cache === "string") {
+      ent.textCache = ent.cache;
+      return ent.textCache;
+    }
+    if (ent.cache instanceof ArrayBuffer || ArrayBuffer.isView(ent.cache)) {
+      ent.textCache = bufferToText(ent.cache);
+      return ent.textCache;
+    }
+    if (typeof ent.cache.arrayBuffer === "function") {
+      const ab = await ent.cache.arrayBuffer();
+      ent.cache = ab;
+      ent.textCache = bufferToText(ab);
+      return ent.textCache;
+    }
+  }
+  if (typeof ent.get === "function") {
+    try {
+      const raw = await ent.get();
+      if (typeof raw === "string") {
+        ent.textCache = raw;
+        ent.cache = textToArrayBuffer(raw);
+        return raw;
+      }
+      if (raw instanceof ArrayBuffer || ArrayBuffer.isView(raw)) {
+        const ab = raw instanceof ArrayBuffer ? raw : raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength);
+        ent.cache = ab;
+        ent.textCache = bufferToText(ab);
+        return ent.textCache;
+      }
+      if (raw && typeof raw.arrayBuffer === "function") {
+        const ab = await raw.arrayBuffer();
+        ent.cache = ab;
+        ent.textCache = bufferToText(ab);
+        return ent.textCache;
+      }
+    } catch {}
+  }
+  if (typeof ent.read === "function") {
+    try {
+      const raw = await ent.read();
+      if (typeof raw === "string") {
+        ent.textCache = raw;
+        ent.cache = textToArrayBuffer(raw);
+        return raw;
+      }
+      if (raw instanceof ArrayBuffer || ArrayBuffer.isView(raw)) {
+        const ab = raw instanceof ArrayBuffer ? raw : raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength);
+        ent.cache = ab;
+        ent.textCache = bufferToText(ab);
+        return ent.textCache;
+      }
+      if (raw && typeof raw.arrayBuffer === "function") {
+        const ab = await raw.arrayBuffer();
+        ent.cache = ab;
+        ent.textCache = bufferToText(ab);
+        return ent.textCache;
+      }
+    } catch {}
+  }
+  ent.textCache = "";
+  ent.cache = new ArrayBuffer(0);
+  return "";
+}
+
+function storeEditorText(ent, txt) {
+  if (!ent) return;
+  const s = String(txt ?? "");
+  ent.textCache = s;
+  ent.cache = textToArrayBuffer(s);
+  ent.imported = true;
+}
+
+function findMatchingTweak(stem, folder) {
+  const candidates = store.entries.filter(e => e.ext === "tweak" && e.name.replace(/\.tweak$/i, "") === stem);
+  if (!candidates.length) return null;
+  if (folder) {
+    const sameDir = candidates.find(e => e.path.startsWith(folder));
+    if (sameDir) return sameDir;
+  }
+  return candidates[0];
+}
+
+async function resolveConAndTweakEntries() {
+  const wp = $("#selWeapon").value;
+  const eWsel = store.entries.find(e => e.path === wp);
+  let conEnt = null, tweakEnt = null;
+  if (eWsel && eWsel.ext === "con") {
+    conEnt = eWsel;
+    const stem = eWsel.name.replace(/\.con$/i, "");
+    const folder = eWsel.path.includes("/") ? eWsel.path.slice(0, eWsel.path.lastIndexOf("/") + 1) : "";
+    tweakEnt = findMatchingTweak(stem, folder);
+  } else if (eWsel) {
+    const stem = eWsel.name.replace(/\.(bundledmesh|staticmesh|skinnedmesh)$/i, "");
+    const folder = eWsel.path.includes("/") ? eWsel.path.slice(0, eWsel.path.lastIndexOf("/") + 1) : "";
+    conEnt = store.entries.find(e => e.ext === "con" && e.name.replace(/\.con$/i, "") === stem) || null;
+    tweakEnt = findMatchingTweak(stem, folder);
+  }
+  activeConEntry = conEnt;
+  activeTweakEntry = tweakEnt;
+}
+
+async function openScriptEditor() {
+  try {
+    await resolveConAndTweakEntries();
+    if (!activeConEntry && !activeTweakEntry) {
+      const wp = $("#selWeapon").value || "objeto";
+      const stem = baseName(wp).replace(/\.(con|tweak|bundledmesh|staticmesh|skinnedmesh)$/i, "") || "objeto";
+      activeConEntry = addEntry(stem + ".con", 0, async () => activeConEntry.cache || new ArrayBuffer(0));
+      storeEditorText(activeConEntry, "");
+    }
+    if (activeConEntry) await readEntrySafe(activeConEntry);
+    if (activeTweakEntry) await readEntrySafe(activeTweakEntry);
+    edTab = activeConEntry ? "con" : "tweak";
+    syncEditorTabUI();
+    const dlg = $("#scriptEditorDlg");
+    if (typeof dlg.showModal === "function") {
+      if (!dlg.open) dlg.showModal();
+    } else {
+      dlg.setAttribute("open", "open");
+    }
+    updateHighlight();
+    $("#edArea").focus();
+  } catch (err) {
+    say("Error al abrir editor: " + (err && err.message ? err.message : String(err)));
+  }
+}
+
+function syncEditorTabUI() {
+  const ent = edTab === "con" ? activeConEntry : activeTweakEntry;
+  $("#edTabCon").classList.toggle("primary", edTab === "con");
+  $("#edTabTweak").classList.toggle("primary", edTab === "tweak");
+  const statusTag = ent ? (ent.imported ? " · editado en memoria" : " · archivo cargado") : " · nuevo";
+  $("#edFileLabel").innerHTML = `<span>${escapeHtml(ent ? ent.path : ("Sin archivo ." + edTab + " asociado"))}</span><span style="opacity:.8;">Diccionario BF2 (.con / .tweak)${escapeHtml(statusTag)}</span>`;
+  $("#edArea").value = ent ? (ent.textCache ?? "") : "";
+  updateHighlight();
+}
+
+function bindScriptEditorEvents() {
+  const ta = $("#edArea");
+  if (!ta) return;
+
+  ta.addEventListener("input", () => {
+    const curEnt = edTab === "con" ? activeConEntry : activeTweakEntry;
+    if (curEnt) storeEditorText(curEnt, ta.value);
+    updateHighlight();
+  });
+  ta.addEventListener("scroll", syncHighlightScroll);
+  ta.addEventListener("keydown", e => {
+    if (e.key === "Tab") {
+      e.preventDefault();
+      const start = ta.selectionStart, end = ta.selectionEnd;
+      ta.value = ta.value.slice(0, start) + "    " + ta.value.slice(end);
+      ta.selectionStart = ta.selectionEnd = start + 4;
+      const curEnt = edTab === "con" ? activeConEntry : activeTweakEntry;
+      if (curEnt) storeEditorText(curEnt, ta.value);
+      updateHighlight();
+    }
+  });
+
+  $("#edTabCon").addEventListener("click", async () => {
+    const curEnt = edTab === "con" ? activeConEntry : activeTweakEntry;
+    if (curEnt) storeEditorText(curEnt, ta.value);
+    edTab = "con";
+    if (!activeConEntry) {
+      const base = activeTweakEntry ? activeTweakEntry.path.replace(/\.tweak$/i, ".con") : "objeto.con";
+      activeConEntry = addEntry(base, 0, async () => activeConEntry.cache || new ArrayBuffer(0));
+      storeEditorText(activeConEntry, "");
+    } else {
+      await readEntrySafe(activeConEntry);
+    }
+    syncEditorTabUI();
+  });
+
+  $("#edTabTweak").addEventListener("click", async () => {
+    const curEnt = edTab === "con" ? activeConEntry : activeTweakEntry;
+    if (curEnt) storeEditorText(curEnt, ta.value);
+    edTab = "tweak";
+    if (!activeTweakEntry) {
+      const base = activeConEntry ? activeConEntry.path.replace(/\.con$/i, ".tweak") : "objeto.tweak";
+      activeTweakEntry = addEntry(base, 0, async () => activeTweakEntry.cache || new ArrayBuffer(0));
+      storeEditorText(activeTweakEntry, "");
+    } else {
+      await readEntrySafe(activeTweakEntry);
+    }
+    syncEditorTabUI();
+  });
+
+  $("#edApply").addEventListener("click", async () => {
+    const curEnt = edTab === "con" ? activeConEntry : activeTweakEntry;
+    if (curEnt) storeEditorText(curEnt, ta.value);
+    if (activeConEntry && $("#selWeapon").value !== activeConEntry.path) {
+      refreshSelectors({ preferWeapon: activeConEntry.path });
+    }
+    S._wp = "";
+    S._ip = "";
+    await loadAll(false);
+    syncEditorTabUI();
+    say("Cambios del ." + edTab + " aplicados en vivo.");
+  });
+
+  $("#edDownload").addEventListener("click", () => {
+    const curEnt = edTab === "con" ? activeConEntry : activeTweakEntry;
+    const txt = ta.value;
+    if (curEnt) storeEditorText(curEnt, txt);
+    const fallbackStem = baseName($("#selWeapon").value || "script").replace(/\.(con|tweak|bundledmesh|staticmesh|skinnedmesh)$/i, "") || "script";
+    const fname = curEnt ? curEnt.name : (fallbackStem + "." + edTab);
+    const blob = new Blob([txt], { type: "text/plain;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = fname;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1500);
+    say("Exportado " + fname);
+  });
+
+  if (TAURI) $("#edSaveDisk").hidden = false;
+  $("#edSaveDisk").addEventListener("click", async () => {
+    const curEnt = edTab === "con" ? activeConEntry : activeTweakEntry;
+    if (!curEnt) { say("No hay archivo activo."); return; }
+    storeEditorText(curEnt, ta.value);
+    if (!curEnt.absPath) { say("Este archivo no viene de disco (zip o arrastrado): usá Descargar."); return; }
+    try { await saveToDisk(curEnt.absPath, new TextEncoder().encode(ta.value)); say("Guardado " + curEnt.absPath + " (copia .bak creada la primera vez)."); }
+    catch (e) { say("No se pudo guardar: " + e); }
+  });
+
+  $("#edClose").addEventListener("click", () => {
+    const curEnt = edTab === "con" ? activeConEntry : activeTweakEntry;
+    if (curEnt) storeEditorText(curEnt, ta.value);
+    const dlg = $("#scriptEditorDlg");
+    if (typeof dlg.close === "function" && dlg.open) dlg.close();
+    else dlg.removeAttribute("open");
+  });
+}
+
+document.addEventListener("click", ev => {
+  if (ev.target.closest("#btnEditScript")) openScriptEditor();
+});
+
+bindScriptEditorEvents();
+
+
+// ═══════════ Material helpers (render) ═══════════
+function matFlags(mt) {
+  const t = lc(mt.tech || "");
+  const at = (mt.alpha === 2 || t.includes("alpha_test")) ? 1 : 0;
+  const blend = !at && (mt.alpha === 1 || t === "alpha");
+  return { at, blend: blend ? 1 : 0, gloss: t.includes("gloss") ? 1 : 0 };
+}
+// ═══════════ Editor de materiales ═══════════
+const FX_STD = ["BundledMesh.fx", "StaticMesh.fx", "SkinnedMesh.fx"];
+const FX_FOR_EXT = { bundledmesh: "bundledmesh.fx", staticmesh: "staticmesh.fx", skinnedmesh: "skinnedmesh.fx" };
+const TECH_REF = {
+  "staticmesh.fx": ["Base", "BaseDetail", "BaseDetailNDetail", "BaseDetailNDetailEnvMap", "BaseDetailCrack", "BaseDetailCrackNCrack", "BaseDetailCrackNDetail", "BaseDetailCrackNDetailNCrack",
+    "BaseDetailDirt", "BaseDetailDirtNDetail", "BaseDetailDirtCrack", "BaseDetailDirtCrackNCrack", "BaseDetailDirtCrackNDetail", "BaseDetailDirtCrackNDetailNCrack", "ColormapGloss", "EnvColormapGloss", "Alpha", "Alpha_Test"],
+  "bundledmesh.fx": ["ColormapGloss", "EnvColormapGloss", "Alpha", "Alpha_Test", "Alpha_TestColormapGloss", "ColormapGlossAlpha_Test", "ColormapGlossAnimatedUV", "EnvColormapGlossAnimatedUV"],
+  "skinnedmesh.fx": ["", "Alpha_Test"],
+};
+const fxTechCache = new Map();
+async function fxTechniques(fx) {
+  const key = baseName(fx || ""); if (fxTechCache.has(key)) return fxTechCache.get(key);
+  let list = null; const ents = store.byName.get(key);
+  if (ents && ents.length) { try { list = [...bufferToText(await ents[0].get()).matchAll(/^\s*technique\s+([A-Za-z_]\w*)/gm)].map(m => m[1]); } catch {} }
+  fxTechCache.set(key, list); return list;
+}
+function staticSlots(t) { const out = [], re = /N(?:Detail|Crack)|Base|Detail|Dirt|Crack/g; let m; while ((m = re.exec(t || ""))) out.push(m[0]); return out; }
+function slotInfo(fx, tech, n, maps) {
+  const f = baseName(fx || ""); let L = [];
+  if (f === "staticmesh.fx") {
+    const nm = { Base: "Base (color)", Detail: "Detail", Dirt: "Dirt", Crack: "Crack", NDetail: "Normal de Detail", NCrack: "Normal de Crack" };
+    const tk = staticSlots(tech); L = tk.length ? tk.map(t => nm[t]) : ["Color"];
+  } else if (f === "bundledmesh.fx") L = ["Color (_c)", "Normal (_b)", "Extra (wreck / specular)", "Extra (wreck / specular)"];
+  else if (f === "skinnedmesh.fx") L = ["Color (_c)", "Normal (_b_os)"];
+  const labels = []; for (let i = 0; i < n; i++) labels.push(maps && /specularlut/i.test(maps[i] || "") ? "SpecularLUT (brillo)" : (L[i] || ("Mapa " + i)));
+  return { labels, expected: L.length };
+}
+const mx = { mt: null, idx: 0, slot: 0 };
+function mxMats() { const m = S.activeMeshData; const L = m && m.geoms[S.geom] && m.geoms[S.geom].lods[S.lod]; return L ? L.mats : []; }
+function mxDirty(mt) { const o = mt._orig; return !!o && (o.fx !== mt.fx || o.tech !== mt.tech || o.alpha !== mt.alpha || o.maps.length !== mt.maps.length || o.maps.some((x, i) => x !== mt.maps[i])); }
+function mxFillTexList() {
+  const dl = $("#mxTexList"); dl.innerHTML = "";
+  for (const e of store.entries.filter(e => e.ext === "dds" || e.ext === "tga")) { const o = document.createElement("option"); o.value = e.path.replace(/^.*?(objects\/|common\/)/, "$1"); dl.appendChild(o); }
+}
+function mxRenderList() {
+  const box = $("#mxList"); box.innerHTML = "";
+  mxMats().forEach((mt, i) => {
+    const b = el("button", "mi"); b.type = "button"; b.setAttribute("aria-selected", i === mx.idx);
+    b.appendChild(el("span", null, "#" + i + (mxDirty(mt) ? " ● modificado" : "")));
+    b.appendChild(el("small", null, (mt.fx || "?") + " · " + (mt.tech || "(sin technique)")));
+    b.appendChild(el("small", null, baseName(mt.maps[0] || "sin mapa")));
+    b.onclick = () => { mx.idx = i; mxRenderList(); mxLoadForm(); };
+    box.appendChild(b);
+  });
+}
+async function mxTechOptions() {
+  const fx = $("#mxFx").value, dl = $("#mxTechList"); dl.innerHTML = "";
+  const real = await fxTechniques(fx), ref = TECH_REF[baseName(fx)] || [];
+  const list = real || ref;
+  for (const t of list) { const o = document.createElement("option"); o.value = t; dl.appendChild(o); }
+  $("#mxTechNote").textContent = real ? "Techniques leídas del " + baseName(fx) + " cargado (" + real.length + ")."
+    : "Lista de referencia del BF2 vanilla. Cargá el .fx de tu mod (Archivos/.zip) para listar sus techniques reales; también podés escribir una a mano.";
+}
+function mxCollect() { // formulario → objeto temporal
+  const maps = [...document.querySelectorAll("#mxMaps .mp")].map(i => i.value.trim());
+  return { fx: $("#mxFx").value.trim(), tech: $("#mxTech").value.trim(), alpha: +$("#mxAlpha").value, maps };
+}
+async function mxValidate() {
+  const box = $("#mxVal"); box.innerHTML = ""; const d = mxCollect(), ext = S.activeMeshData.ext, add = (c, t) => box.appendChild(el("div", c, (c === "e" ? "✖ " : c === "w" ? "▲ " : c === "o" ? "✔ " : "• ") + t));
+  const f = baseName(d.fx), want = FX_FOR_EXT[ext];
+  if (!d.fx) add("e", "Falta el shader (.fx).");
+  else if (!/\.fx$/.test(f)) add("w", "El shader debería terminar en .fx.");
+  else if (want && f !== want) add("w", "Una malla ." + ext + " normalmente usa " + want + " (acá: " + d.fx + ").");
+  const real = d.fx ? await fxTechniques(d.fx) : null, ref = TECH_REF[f];
+  if (real) { if (!real.includes(d.tech)) add("e", 'La technique "' + d.tech + '" no existe en ' + f + " cargado."); else add("o", "Technique encontrada en el .fx."); }
+  else if (ref && !ref.includes(d.tech)) add("w", 'Technique "' + d.tech + '" no está en la lista vanilla de ' + f + " (puede ser válida en tu mod).");
+  const t = lc(d.tech);
+  if (ext !== "skinnedmesh") {
+    if (t.includes("alpha_test") && d.alpha !== 2) add("w", "La technique usa Alpha_Test pero Transparencia ≠ 2.");
+    if (t === "alpha" && d.alpha !== 1) add("w", "Technique Alpha pero Transparencia ≠ 1.");
+    if (d.alpha === 2 && !t.includes("alpha_test")) add("i", "Transparencia 2 sin Alpha_Test en la technique: el motor decide por la technique.");
+  }
+  const si = slotInfo(d.fx, d.tech, d.maps.length, d.maps);
+  if (si.expected && d.maps.length !== si.expected && !(f === "bundledmesh.fx" && d.maps.length >= 2 && d.maps.length <= 4))
+    add("w", "Esta technique espera " + si.expected + " mapa(s); hay " + d.maps.length + ".");
+  d.maps.forEach((p, i) => {
+    if (!p) { add("e", "El mapa " + i + " (" + si.labels[i] + ") está vacío."); return; }
+    if (!/\.dds$/i.test(p)) add("w", "Mapa " + i + ": BF2 usa .dds (" + baseName(p) + ").");
+    else if (!findEntry(p) && !/^common[\\/]/i.test(p)) add("i", "Mapa " + i + " no está cargado en el visor: " + baseName(p));
+    if (/\\/.test(p) && !/^common/i.test(p)) add("i", "Mapa " + i + ": las rutas de objects usan / (barra normal).");
+  });
+  if (!box.children.length) add("o", "Sin observaciones.");
+}
+async function mxRenderMaps(d) {
+  const box = $("#mxMaps"); box.innerHTML = ""; const si = slotInfo(d.fx, d.tech, d.maps.length, d.maps);
+  d.maps.forEach((p, i) => {
+    const r = el("div", "mrow"); r.appendChild(el("span", "lb", i + " · " + si.labels[i]));
+    const inp = document.createElement("input"); inp.type = "text"; inp.className = "mp"; inp.value = p; inp.setAttribute("list", "mxTexList"); inp.spellcheck = false;
+    inp.oninput = () => { st.textContent = findEntry(inp.value) ? "✔" : "—"; mxValidate(); };
+    const st = el("span", null, findEntry(p) ? "✔" : "—"); st.title = "✔ = textura cargada en el visor";
+    const pv = document.createElement("label"); pv.style.cssText = "font-size:11px;display:flex;gap:3px;align-items:center";
+    const rd = document.createElement("input"); rd.type = "radio"; rd.name = "mxPrev"; rd.checked = i === mx.slot; rd.onchange = () => { mx.slot = i; mxApply(true); };
+    pv.appendChild(rd); pv.appendChild(document.createTextNode("ver"));
+    const del = el("button", "btn", "×"); del.type = "button"; del.title = "Quitar mapa";
+    del.onclick = () => { const c = mxCollect(); c.maps.splice(i, 1); if (mx.slot >= c.maps.length) mx.slot = 0; mxRenderMaps(c); mxValidate(); };
+    r.append(inp, st, pv, del); box.appendChild(r);
+  });
+}
+async function mxLoadForm() {
+  const mt = mxMats()[mx.idx]; mx.mt = mt; if (!mt) return;
+  const sk = S.activeMeshData.ext === "skinnedmesh";
+  $("#mxFx").value = mt.fx; $("#mxTech").value = mt.tech; $("#mxAlpha").value = String(mt.alpha || 0); $("#mxAlpha").disabled = sk;
+  const g = S.weapObj && S.weapObj.groups.find(g => g.mt === mt); mx.slot = g ? Math.min(g.slot || 0, Math.max(0, mt.maps.length - 1)) : 0;
+  await mxTechOptions(); await mxRenderMaps({ fx: mt.fx, tech: mt.tech, maps: mt.maps });
+  $("#mxGeo").textContent = "vstart " + mt.vstart + " · istart " + mt.istart + " · índices " + mt.inum + " (" + Math.round(mt.inum / 3) + " tris) · vértices " + mt.vnum;
+  await mxValidate();
+}
+async function mxRefreshGroups(mt, slot) {
+  if (!S.weapObj) return;
+  for (const g of S.weapObj.groups) if (g.mt === mt) {
+    Object.assign(g, matFlags(mt)); g.slot = slot || 0;
+    const p = mt.maps[g.slot] || mt.maps[0]; g.tex = p ? await texFor(p) : null; g.miss = g.tex ? null : baseName(p || "sin textura");
+  }
+}
+async function mxApply(previewOnly) {
+  const mt = mx.mt; if (!mt) return; const d = mxCollect();
+  if (!previewOnly || true) { mt.fx = d.fx; mt.tech = d.tech; if (S.activeMeshData.ext !== "skinnedmesh") mt.alpha = d.alpha; mt.maps = d.maps; }
+  if ($("#mxAll").checked && !previewOnly) {
+    const o = mt._orig, m = S.activeMeshData;
+    for (const g of m.geoms) for (const l of g.lods) for (const x of l.mats) if (x !== mt && x.fx === o.fx && x.tech === o.tech && x.maps[0] === o.maps[0]) { x.fx = mt.fx; x.tech = mt.tech; x.alpha = mt.alpha; x.maps = mt.maps.slice(); }
+  }
+  await mxRefreshGroups(mt, mx.slot); mxRenderList(); await mxValidate();
+  say(previewOnly ? "" : "Material #" + mx.idx + " aplicado.");
+}
+function mxRevert() { const mt = mx.mt; if (!mt || !mt._orig) return; const o = mt._orig; mt.fx = o.fx; mt.tech = o.tech; mt.alpha = o.alpha; mt.maps = o.maps.slice(); mx.slot = 0; mxRefreshGroups(mt, 0).then(() => { mxRenderList(); mxLoadForm(); }); }
+function serializeMesh(m, orig) {
+  const parts = [new Uint8Array(orig, 0, m.matStart)], enc = new TextEncoder(), sk = m.ext === "skinnedmesh";
+  const i32 = v => { const b = new Uint8Array(4); new DataView(b.buffer).setInt32(0, v, true); return b; };
+  const str = s => { if (!s) return [i32(0)]; const bytes = enc.encode(s + (m.strNul ? "\0" : "")); return [i32(bytes.length), bytes]; };
+  for (const g of m.geoms) for (const l of g.lods) {
+    parts.push(i32(l.mats.length));
+    for (const mt of l.mats) {
+      if (!sk) parts.push(i32(mt.alpha));
+      parts.push(...str(mt.fx), ...str(mt.tech), i32(mt.maps.length));
+      for (const p of mt.maps) parts.push(...str(p));
+      parts.push(i32(mt.vstart), i32(mt.istart), i32(mt.inum), i32(mt.vnum), i32(mt.u4), i32(mt.u5));
+      if (!sk && m.version === 11) parts.push(mt.bnd || new Uint8Array(24));
+    }
+  }
+  let n = 0; for (const p of parts) n += p.length; const out = new Uint8Array(n); let o = 0; for (const p of parts) { out.set(p, o); o += p.length; }
+  return out;
+}
+async function mxSave() {
+  const m = S.activeMeshData, e = S.weapon; if (!m || !e) return;
+  await mxApply(true);
+  const out = serializeMesh(m, await e.get());
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([out], { type: "application/octet-stream" })); a.download = e.name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1500); say("Exportado " + e.name + " con los materiales editados.");
+}
+function openMatEditor() {
+  if (!S.activeMeshData) return; fxTechCache.clear(); mx.idx = 0; mx.slot = 0;
+  const fl = $("#mxFxList"); fl.innerHTML = ""; const names = new Set(FX_STD); for (const e of ofExt("fx")) names.add(e.name);
+  for (const n of names) { const o = document.createElement("option"); o.value = n; fl.appendChild(o); }
+  mxFillTexList(); $("#mxInfo").textContent = (S.weapon ? S.weapon.name : "") + " · geom " + S.geom + " · lod " + S.lod;
+  mxRenderList(); mxLoadForm();
+  const dlg = $("#matDlg"); if (typeof dlg.showModal === "function") dlg.showModal(); else dlg.setAttribute("open", "");
+}
+function bindMatEditor() {
+  $("#btnMat").addEventListener("click", openMatEditor);
+  $("#mxClose").onclick = () => { const d = $("#matDlg"); if (d.close) d.close(); else d.removeAttribute("open"); };
+  $("#mxApply").onclick = () => mxApply(false); $("#mxRevert").onclick = mxRevert; $("#mxSave").onclick = mxSave;
+  if (TAURI) $("#mxSaveDisk").hidden = false;
+  $("#mxSaveDisk").onclick = async () => {
+    const m = S.activeMeshData, e = S.weapon; if (!m || !e) return;
+    if (!e.absPath) { say("La malla no viene de disco: usá Descargar malla."); return; }
+    try {
+      await mxApply(true);
+      await saveToDisk(e.absPath, serializeMesh(m, await e.get()));
+      for (const g of m.geoms) for (const l of g.lods) for (const x of l.mats) x._orig = { fx: x.fx, tech: x.tech, maps: x.maps.slice(), alpha: x.alpha };
+      e.cache = null; mxRenderList(); say("Guardado " + e.absPath + " (copia .bak creada la primera vez).");
+    } catch (err) { say("No se pudo guardar: " + err); }
+  };
+  $("#mxAddMap").onclick = () => { const c = mxCollect(); c.maps.push(""); mxRenderMaps(c); mxValidate(); };
+  $("#mxFx").addEventListener("input", async () => { await mxTechOptions(); const c = mxCollect(); await mxRenderMaps(c); mxValidate(); });
+  $("#mxTech").addEventListener("input", async () => { const c = mxCollect(); await mxRenderMaps(c); mxValidate(); });
+  $("#mxAlpha").addEventListener("change", mxValidate);
+}
+bindMatEditor();
+
+window.__bf2 = { S, store, ingest, serializeMesh, parseMesh };
+</script>
+</body>
+</html>
